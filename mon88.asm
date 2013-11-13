@@ -1104,21 +1104,22 @@ WAITHOSTRPLY:	call		WAITHOST					; wait for host to reply, retun reply in AL
 				dec			dx
 				jnz			CONNECTLOOP					; loop to send another "C" becasue host did not reply yet
 				mcrPRINT	XMODEMHOSTTOV				; print error message
+				clc
 				jmp			XMODEMRXEXIT
 ;
 ;-----	process data packets
 ;
 GETMOREPACKETS:
-RETRYPACKET:	call		WAITHOST					; on retry, wait for host byte
+RETRYPACKET:	xor			cx,cx						; zero receive byte count
+				call		WAITHOST					; on retry, wait for host byte
 				jc			PACKETERR					; if time out go to error and see if we can try again
 				mov			dh,5						; reset to 5 retry attempts
 				jmp			RESUMEONRETRY				; byte received ok, check what it is
 ;
-GETFIRSTPACKET:	mov			dl,1						; initialize sequence number
+GETFIRSTPACKET:	xor			cx,cx						; zero receive byte count
+				mov			dl,1						; initialize sequence number
 				mov			dh,5						; 5 retry attempts
-RESUMEONRETRY:	mov			bx,0						; zero XMODEM buffer index
-				mov			word [ss:bp+XCRC],0			; xero out CRC
-				cmp			al,SOH						; is it a 128B packet?
+RESUMEONRETRY:	cmp			al,SOH						; is it a 128B packet?
 				je			RCVPACKET					;  yes, go to receive loop
 				cmp			al,EOT						; did the host send an EOT?
 				je			HOSTEOT						;  yes, flush buffers to HDD and exit !! is the the right way !!
@@ -1133,13 +1134,14 @@ BADHOSTRESP:	mov			cx,XMODEMCANSEQ
 				mov			ax,2
 				call		WAITFIX						; wait a bit (~400mSec) to clear console
 				mcrPRINT	XMODEMBADRESP				; print notification and exit
+				clc
 				jmp			XMODEMRXEXIT
 ;
 ;-----	host sent EOT
 ;
 HOSTEOT:		mcrXMODEMRESP	ACK						; host sent EOT, send ACK
 				cmp			word [ss:bp+XBYTECOUNT],0	; are there any bytes to write?
-				je			XMODEMRXEXIT				;  no, buffer is empty so exit
+				je			XMODEMRXEXIT				;  no, buffer is empty so exit (CY.f will be '0' if equal)
 				mov			word [ss:bp+XEOT],1			;  yes, set EOT flag and go write what's left
 				jmp			WRITEDEST
 ;
@@ -1149,12 +1151,12 @@ HOSTCANCEL:		mcrXMODEMRESP	ACK						; host canceled the connection, send ACK
 				mov			ax,2
 				call		WAITFIX						; wait a bit to clear console
 				mcrPRINT	XMODEMCANCEL				; print notification and exit
+				clc
 				jmp			XMODEMRXEXIT
 ;
 ;-----	XMODEM data receive loop and CRC
 ;
-RCVPACKET:		mov			cx,XMODEMPACKET				; set packet size
-				call		WAITHOST					; wait for packet number byte
+RCVPACKET:		call		WAITHOST					; wait for packet number byte
 				jc			PACKETERR					; packet error if timed out
 				cmp			al,dl						; check sequence number matches expected number
 				jne			PACKETERR					; no match so packet error
@@ -1164,8 +1166,8 @@ RCVPACKET:		mov			cx,XMODEMPACKET				; set packet size
 				cmp			al,dl						; compare complement of sequence number
 				jne			PACKETERR					; packet error if no match
 ;
-				xor			cx,cx						; zero byte count, also index to XMODEM input buffer
 				mov			bx,[ss:bp+XBYTECOUNT]		; set BX to index of HDD write buffer
+				mov			word [ss:bp+XCRC],0			; xero out CRC
 FILLBUFFER:		call		WAITHOST					; get a byte
 				jc			PACKETERR					; packet error if time out
 				mov			[ds:si+bx],al				; store byte
@@ -1177,7 +1179,7 @@ FILLBUFFER:		call		WAITHOST					; get a byte
 				add			[ss:bp+XBYTECOUNT],cx		; accumulate byte count
 ;
 				mov			al,0						; flush CRC calculator
-				call		CALCCRC						; with more bytes of '0'
+				call		CALCCRC						; with two more bytes of '0'
 				mov			al,0
 				call		CALCCRC
 ;
@@ -1190,7 +1192,7 @@ FILLBUFFER:		call		WAITHOST					; get a byte
 				cmp			al,[ss:bp+XCRC]				; check CRC low byte
 				jne			PACKETERR
 ;
-				inc			dl							; increment sequence number
+				inc			dl							; increment packet sequence number
 ;
 				cmp			word [ss:bp+XBYTECOUNT],(512*XMODEMSEC) ; is the buffer full?
 				je			WRITEDEST					; transfer the XMODEM buffer to HDD or memory
@@ -1214,6 +1216,7 @@ TOOMANYRETRY:	mov			cx,XMODEMCANSEQ
 				mov			ax,10
 				call		WAITFIX						; wait about 2 sec to clear console
 				mcrPRINT	XMODEMRETRYERR
+				clc
 				jmp			XMODEMRXEXIT
 ;
 ;-----	arbitrate between write to memory and HDD
@@ -1274,7 +1277,7 @@ XFRTOHDD:		push		ds
 ;
 XFREPILOG:		mov			word [ss:bp+XBYTECOUNT],0	; clear buffer count for next write cycle
 				cmp			word [ss:bp+XEOT],1			; did host send EOT so we're done?
-				je			XMODEMRXEXIT				; done so exit
+				je			XMODEMRXEXIT				; done so exit (CY.f will be '0' if equal)
 				mcrXMODEMRESP	ACK						; send ACK
 				jmp			GETMOREPACKETS				; no errors and not done, so get more packets
 ;
@@ -1289,7 +1292,8 @@ HDDWRITEERR:	mov			cx,XMODEMCANSEQ
 ;
 ;-----	restore keyboard input buffer
 ;
-XMODEMRXEXIT:	mov			ax,BIOSDATASEG				; establish pointer to BIOS data
+XMODEMRXEXIT:	pushf									; save flags to preserve CY.f return status
+				mov			ax,BIOSDATASEG				; establish pointer to BIOS data
 				mov			ds,ax
 				mov			ax,bdKEYBUF					; buffer start offset in BIOS data structure
 				cli
@@ -1299,6 +1303,7 @@ XMODEMRXEXIT:	mov			ax,BIOSDATASEG				; establish pointer to BIOS data
 				add			ax,32
 				mov			[ds:bdKEYBUFEND],ax			; buffer end address
 				sti
+				popf
 ;
 ;-----	exit XMODEM processing
 ;

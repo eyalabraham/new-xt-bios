@@ -912,18 +912,16 @@ INT0A:			sti										; enable interrupts
 ;
 ;-----	store character in keyboard buffer
 ;
-				mov			bx,ax						; save character
-				mov			ax,BIOSDATASEG
-				mov			ds,ax						; set DS to BIOS data structure segment
-				mov			ax,bx						; retrieve character
+				mov			bx,BIOSDATASEG
+				mov			ds,bx						; set DS to BIOS data structure segment
 				mov			bx,[ds:bdKEYBUFTAIL]		; get buffer write pointer
 				mov			di,bx						; save it
 				inc			bx							; next position
 				cmp			bx,[ds:bdKEYBUFEND]			; is this end of buffer?
-				jnz			NOTEND						; no, skip
-				mov			bx,[ds:bdKEYBUFSTART]		; reset write pointer (circular buffer)
+				jne			NOTEND						;  no, skip
+				mov			bx,[ds:bdKEYBUFSTART]		;  yes, reset write pointer (circular buffer)
 NOTEND:			cmp			bx,[ds:bdKEYBUFHEAD]		; is write pointer same as read pointer?
-				jnz			NOOVERRUN					; no, skip as there is no overrun
+				jne			NOOVERRUN					;  no, skip as there is no overrun
 				mov			cx,2253						; 1.5KHz beep
 				mov			bl,19						; 1/3 sec duration
 				call		BEEP						; yes, beep speaker
@@ -1038,7 +1036,7 @@ INT10F01:
 INT10F02:		ret
 ;
 ;-----------------------------------------------;
-; INT10, 03h - return curson position as 0,0	;
+; INT10, 03h - return cursor position as 0,0	;
 ;-----------------------------------------------;
 ;
 INT10F03:		xor			cx,cx
@@ -1052,7 +1050,7 @@ INT10F03:		xor			cx,cx
 INT10F06:		ret
 ;
 ;-----------------------------------------------;
-; INT10, 09h and 0Ah - write ASCII at curson	;
+; INT10, 09h and 0Ah - write ASCII at cursor	;
 ; INT10, 0eh - (AL) has ASCII of character		;
 ; (BL) has attribute that will be ignored		;
 ;-----------------------------------------------;
@@ -1820,8 +1818,8 @@ INT16:			sti										; enable other interrupts
 				je			INT16STATUS					; func. 01h get keyboard buffer status
 				cmp			ah,02h
 				je			INT16SHIFT					; func. 02h get shift key status
-				cmp			ah,05h
-				je			INT16WRITE					; func. 05h write to keyboard buffer
+;				cmp			ah,05h
+;				je			INT16WRITE					; func. 05h write to keyboard buffer
 				cmp			ah,10h
 				je			INT16READ					; func. 10h read keyboard buffer
 				cmp			ah,11h
@@ -1836,6 +1834,8 @@ INT16:			sti										; enable other interrupts
 INT16EXIT:		pop			bx
 				pop			ds
 				iret
+;
+;-----	read keyboard buffer
 ;
 INT16READ:		cli										; disable interrupts while reading buffer pointers
 				mov			bx,[ds:bdKEYBUFHEAD]		; get buffer head pointer
@@ -1853,6 +1853,8 @@ READBUFFER:		mov			al,[ds:bx]					; get the ASCII code into AL
 				mov			[ds:bdKEYBUFHEAD],bx		; correct buffer head pointer
 				jmp			INT16EXIT
 ;
+;-----	check keyboard buffer for waiting characters
+;
 INT16STATUS:	cli										; disable interrupts while reading buffer pointers
 				mov			bx,[ds:bdKEYBUFHEAD]		; get buffer head pointer
 				cmp			bx,[ds:bdKEYBUFTAIL]		; compare to buffer tail pointer, if equal then nothing there (Z.f=1)
@@ -1865,9 +1867,12 @@ INT16STATUS:	cli										; disable interrupts while reading buffer pointers
 				pop			ds							; registers
 				retf		2							; and exit here while preserving flags set in *this* function
 ;
+;-----	return shift status, always '0 for this implementation
+;
 INT16SHIFT:		mov			al,[ds:bdSHIFT]
 				jmp			INT16EXIT
 ;
+;-----	write character into keyboard buffer
 ; @@- do we need this function?
 INT16WRITE:		nop
 				jmp			INT16EXIT
@@ -3255,7 +3260,7 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)	; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "11/08/13"          		; Release date MM/DD/YY
+                db          "11/12/13"          		; Release date MM/DD/YY
 ;
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                		; Computer type (XT)
