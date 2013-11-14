@@ -966,9 +966,21 @@ INT0D:			push		ax
 ; data for compatibility						;
 ;												;
 ; entry:										;
+;   AH = 00h                                    ;
+;       AL video mode                           ;
+;       40:49 will reflect the mode             ;
+;       model will not change in implementation ;
+;   AH = 05h                                    ;
+;       AL = new page number                    ;
+;	AH = 09h write attribute/char at cursor     ;
+;	AH = 0ah write char at curson position      ;
 ;	AH = 0Eh write TTY to active page			;
 ;		AL character ASCII						;
-;		BL foreground color (ignored)			;
+;		(all other input ignored)               ;
+;   AH = 0Fh                                    ;
+;       AH = number of screen columns           ;
+;       AL = mode currently set                 ;
+;       BH = current display page               ;
 ;	AH = 13h write string						;
 ;		ES:BP pointer to string					;
 ;		CX    length of string					;
@@ -976,7 +988,7 @@ INT0D:			push		ax
 ;		BH    page number (ignored)				;
 ;		AL    00h write string					;
 ;			<char><char>...						;
-;		BL attribute (ignored)				;
+;		BL attribute (ignored)				    ;
 ;			cursonr not moved (ignored)			;
 ;		AL    01h same as 00h move cursor		;
 ;		AL    02h write chat and attr.			;
@@ -986,18 +998,23 @@ INT0D:			push		ax
 ;												;
 ; exit:											;
 ;	console output, all work registers saved	;
+;                                               ;
+; notes:                                        ;
+;   '.' implemented as no-op function           ;
+;   '*' function is implemented                 ;
+;   ' ' function goes to IGNORE stub            ;
 ;-----------------------------------------------;
 ;
 ;														; function
-INT10JUMPTBL:	dw			(INT10F00+ROMOFF)			; . 00h		- set CRT mode
+INT10JUMPTBL:	dw			(INT10F00+ROMOFF)			; * 00h		- set CRT mode
 				dw			(INT10F01+ROMOFF)			; .	01h		- set cursor type
 				dw			(INT10F02+ROMOFF)			; .	02h		- set cursor position
 				dw			(INT10F03+ROMOFF)			; *	03h		- read cursor position
 				dw			(INT10IGNORE+ROMOFF)		;	04h		- read light pen position
-				dw			(INT10IGNORE+ROMOFF)		;	05h		- select active display
+				dw			(INT10F05+ROMOFF)           ; * 05h		- select active display
 				dw			(INT10F06+ROMOFF)			; .	06h		- scroll active page up
 				dw			(INT10IGNORE+ROMOFF)		;	07h		- scroll active page down
-				dw			(INT10IGNORE+ROMOFF)		; ?	08h		- read attribute/character at cursor
+				dw			(INT10IGNORE+ROMOFF)		;   08h		- read attribute/character at cursor
 				dw			(INT10F09+ROMOFF)			; *	09h		- write attribute/character at cursor
 				dw			(INT10F0A+ROMOFF)			; *	0ah		- write character at curson position
 				dw			(INT10F0B+ROMOFF)			; .	0bh		- set color palette
@@ -1027,11 +1044,23 @@ INT10:			sti
 ;
 ;-----------------------------------------------;
 ; INT10, 00h - Set Video Mode					;
+;-----------------------------------------------;
+;
+INT10F00:       sti
+				push		ds
+                push        ax
+				mov			ax,BIOSDATASEG
+				mov			ds,ax						; establish segment of BIOS data structure
+                pop         ax
+				mov			byte [ds:bdVIDEOMODE],al	; save video more in 40:49
+				pop			ds
+				ret
+;
+;-----------------------------------------------;
 ; INT10, 01h - Set Cursor Type					;
 ; INT10, 02h - Set Cursor Position				;
 ;-----------------------------------------------;
 ;
-INT10F00:
 INT10F01:
 INT10F02:		ret
 ;
@@ -1041,6 +1070,21 @@ INT10F02:		ret
 ;
 INT10F03:		xor			cx,cx
 				xor			dx,dx
+				ret
+;
+;-----------------------------------------------;
+; INT10, 05h - select active display            ;
+;-----------------------------------------------;
+; @@- fix for bug #13
+;
+INT10F05:       sti
+				push		ds
+                push        ax
+				mov			ax,BIOSDATASEG
+				mov			ds,ax						; establish segment of BIOS data structure
+                pop         ax
+				mov			byte [ds:bdVIDEOPAGE],al	; save video page in 40:62
+				pop			ds
 				ret
 ;
 ;-----------------------------------------------;
@@ -1456,12 +1500,12 @@ INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	.	- Reset disk system
 				dw			(INT13F01+ROMOFF)			;	01h	*	- Get disk status
 				dw			(INT13F02+ROMOFF)			;	02h	*	- Read disk sectors
 				dw			(INT13F03+ROMOFF)			;	03h	*	- Write disk sectors
-				dw			(INT13IGNORE+ROMOFF)		;	04h	?	- Verify disk sectors
-				dw			(INT13IGNORE+ROMOFF)		;	05h	?	- Format disk track
+				dw			(INT13IGNORE+ROMOFF)		;	04h     - Verify disk sectors
+				dw			(INT13F05+ROMOFF)           ;	05h *   - Format disk track
 				dw			(INT13IGNORE+ROMOFF)		;	06h		- Format track and set bad sector flag (XT & portable)
 				dw			(INT13IGNORE+ROMOFF)		;	07h		- Format the drive starting at track (XT & portable)
 				dw			(INT13F08+ROMOFF)			;	08h	*	- Get current drive parameters (XT & newer)
-				dw			(INT13IGNORE+ROMOFF)		;	09h	?	- Initialize fixed disk base tables (XT & newer)
+				dw			(INT13IGNORE+ROMOFF)		;	09h     - Initialize fixed disk base tables (XT & newer)
 				dw			(INT13F0A+ROMOFF)			;	0ah	*	- Read long sector (XT & newer)
 				dw			(INT13F0B+ROMOFF)			;	0bh	*	- Write long sector (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	0ch		- Seek to cylinder (XT & newer)
@@ -1474,8 +1518,8 @@ INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	.	- Reset disk system
 				dw			(INT13IGNORE+ROMOFF)		;  	13h		- Drive diagnostic (XT & portable only)
 				dw			(INT13IGNORE+ROMOFF)		;  	14h		- Controller internal diagnostic (XT & newer)
 				dw			(INT13F15+ROMOFF)			;  	15h	*	- Read disk type/DASD type (XT BIOS from 1/10/86 & newer)
-				dw			(INT13IGNORE+ROMOFF)		;  	16h	?	- Disk change line status (XT BIOS from 1/10/86 & newer)
-				dw			(INT13IGNORE+ROMOFF)		;  	17h	?	- Set dasd type for format (XT BIOS from 1/10/86 & newer)
+				dw			(INT13IGNORE+ROMOFF)		;  	16h     - Disk change line status (XT BIOS from 1/10/86 & newer)
+				dw			(INT13IGNORE+ROMOFF)		;  	17h     - Set dasd type for format (XT BIOS from 1/10/86 & newer)
 				dw			(INT13F18+ROMOFF)			;  	18h	*	- Set media type for format (BIOS date specific)
 				dw			(INT13IGNORE+ROMOFF)		;  	19h		- Park fixed disk heads (AT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;  	1ah		- Format ESDI drive unit (PS/2 50+)
@@ -1668,6 +1712,13 @@ F03EXIT:		pop			ds							; restore DS and exit
 				ret
 ;
 ;-----------------------------------------------;
+;		INT 13, function 05h - Format track     ;
+;-----------------------------------------------;
+; @@- fix for bug #14
+;
+INT13F05:       ret
+;
+;-----------------------------------------------;
 ;		INT 13, function 08h - get drive param	;
 ;-----------------------------------------------;
 ;
@@ -1700,7 +1751,7 @@ INT13F15:		push		bx
 				push		es
 				mov			bl,dl						; save drive ID
 				call		CHECKDRV					; check if drive exists
-				jnc			F15VALIDDRV					; drive is valid, continue
+				jnc			F15VALIDDRV					; drive is valid, [ES:DI] points to drive info in ROM, continue
 				xor			ah,ah						; drive not present
 				xor			cx,cx
 				xor			dx,dx
@@ -1725,7 +1776,7 @@ F15EXIT:		pop			es
 ;----------------------------------------------------;
 ;
 INT13F18:		call		CHECKDRV					; check if drive exists
-				jnc			F18VALIDDRV					; drive is valid continue
+				jnc			F18VALIDDRV					; drive is valid, [ES:DI] points to drive info in ROM, continue
 				mov			ah,INT13BADCMD				; drive parameter is not valid, signal error 'bad parameter'
 				stc
 				jmp			F18EXIT
@@ -1742,7 +1793,7 @@ F18VALIDDRV:	mov			bx,cx						; save CX
 				mov			ah,INT13NOERR				; indicate no errors
 				clc
 				jmp			F18EXIT
-F18NOTSUPPORTED:mov			ah,INT13UNSUPMED			; signal 'unsipported track/media'
+F18NOTSUPPORTED:mov			ah,INT13UNSUPMED			; signal 'unsupported track/media'
 				stc
 F18EXIT:		ret
 ;

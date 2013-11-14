@@ -195,7 +195,7 @@ bdIDECMDSTATUS:	resb		1					; 		IDECMDSTATUS:  - commad (wr) or regular status (
 ; Video display area
 ; ( defined but will not be used)
 ;
-                resb        1                   ; 40:49 + Current CRT mode  (software)
+bdVIDEOMODE:    resb        1                   ; 40:49 + Current CRT mode  (software)
                                                 ;       |
                                                 ;       - 0 = 40 x 25 text (no color)
                                                 ;       - 1 = 40 x 25 text (16 color)
@@ -210,7 +210,7 @@ bdIDECMDSTATUS:	resb		1					; 		IDECMDSTATUS:  - commad (wr) or regular status (
                 resw        1                   ; 40:4E - Byte offset in regen region
                 resw        8                   ; 40:50 - Cursor pos for up to 8 pages
                 resw        1                   ; 40:60 - Current cursor mode setting
-                resb        1                   ; 40:62 - Current page on display
+bdVIDEOPAGE:    resb        1                   ; 40:62 - Current page on display
                 resw        1                   ; 40:63 - Base addres (B000h or B800h)
                 resb        1                   ; 40:65 - ic 6845 mode reg. (hardware)
                 resb        1                   ; 40:66 - Current CGA palette
