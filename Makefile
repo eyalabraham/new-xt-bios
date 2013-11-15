@@ -18,7 +18,7 @@
 # 02/03/2013        created
 #
 
-BINDIR = ~/Documents/bios/bin
+BINDIR = .
 DEPENDENCIES = newbios.asm memdef.asm iodef.asm
 
 all : bin srec

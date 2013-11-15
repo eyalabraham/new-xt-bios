@@ -301,7 +301,7 @@ MEMORYWR:		push		ax
 				push		ds
 				push		bp							; save work registers
 				mov			bp,sp
-				sub			sp,6						; make room for 3 parameters to pass on call to XMODEMRX
+				sub			sp,8						; make room for 4 parameters to pass on call to XMODEMRX
 ;
 				mov			ax,MONSEG
 				mov			ds,ax						; establish pointer to monitor data
@@ -320,13 +320,17 @@ GETSEGOFF:		mov			si,MONOFF
 				mov			[bp],ax						; save segment and offset address token
 				loop		GETSEGOFF
 ;
+                sub         bp,2
+                mov         word [bp],XMEMWRATONCE      ; accumulate 512B before writing to memory
+;
 				sub			bp,2
 				mov			word [bp],FUNCMEMWR			; flag the function to write to the HDD
+;
 				call		XMODEMRX
 ;
 ;-----	exit command function
 ;
-MEMORYWREXIT:	add			sp,6						; discard parameters from stack
+MEMORYWREXIT:	add			sp,8						; discard parameters from stack
 				pop			bp							; restore registers
 				pop			ds
 				pop			si
@@ -352,7 +356,7 @@ DRIVEWR:		push		ax
 				push		ds
 				push		bp							; save work registers
 				mov			bp,sp
-				sub			sp,6						; make room for 3 parameters to pass on call to XMODEMRX
+				sub			sp,8						; make room for 4 parameters to pass on call to XMODEMRX
 ;
 				mov			ax,MONSEG
 				mov			ds,ax						; establish pointer to monitor data
@@ -371,13 +375,17 @@ GETWRITELBA:	mov			si,MONOFF
 				mov			[bp],ax						; save LBA address token
 				loop		GETWRITELBA					; loop through LBA address tokens
 ;
+                sub         bp,2
+                mov         word [bp],XHDDWRATONCE      ; accumulate sectors before writing to HDD
+;
 				sub			bp,2
 				mov			word [bp],FUNCDRIVEWR		; flag the function to write to the HDD
+;
 				call		XMODEMRX
 ;
 ;-----	exit command function
 ;
-DRIVEWREXIT:	add			sp,6						; discard parameters from stack
+DRIVEWREXIT:	add			sp,8						; discard parameters from stack
 				pop			bp							; restore registers
 				pop			ds
 				pop			si
@@ -1033,11 +1041,12 @@ WAITHOSTEXIT:	pop			ds
 				int			10h							; send response
 %endmacro
 ;
-LOCALVARIABLES:	equ			3
+LOCALVARIABLES:	equ			4
 LOCALVARSPACE:	equ			(LOCALVARIABLES*2)			; stack space for local variables
 ;
 ;-----	local variables BP offsets
 ;
+XWRATONCEBYTES: equ         -8                          ; byte count to write-at-once, calculated from XWRITESIZE
 XBYTECOUNT:		equ			-6							; bytes in HDD write buffer
 XEOT:			equ			-4							; flag to signal that EOT was sent by host
 XCRC:			equ			-2							; XMODEM packet CRC
@@ -1045,10 +1054,11 @@ XCRC:			equ			-2							; XMODEM packet CRC
 ;-----	function parameter BP offsets
 ;
 XHDDMEM:		equ			2
-XLBAH:			equ			4							; high LBA word
-XLBAL:			equ			6							; low LBA word
-XMEMSEG:		equ			4							; memory segment and offset to write
-XMEMOFF:		equ			6
+XWRITESIZE:     equ         4                           ; number of 512B blocks to write at-once
+XLBAH:			equ			6							; high LBA word
+XLBAL:			equ			8							; low LBA word
+XMEMSEG:		equ			6							; memory segment and offset to write
+XMEMOFF:		equ			8
 ;
 ;		.. registers ..
 ;		HDD bytes count		[BP-6]
@@ -1096,6 +1106,10 @@ XMODEMRX:		mov			bp,sp						; setup BP as variable/parameter pointer
 ;
 				mov			word [ss:bp+XEOT],0			; clear EOT flag
 				mov			word [ss:bp+XBYTECOUNT],0	; clear buffer byte count
+				mov         ax,512                      ; 512B in sector
+				mul         word [ss:bp+XWRITESIZE]     ; calculate byte count from sector count
+				jc          XMODEMRXEXIT                ; exit if CY.f='1' indicatint byte count overflow over 64KB
+				mov         [ss:bp+XWRATONCEBYTES],ax   ; store in byte count variable
 				mov			dx,HOSTWAITTOV				; set max time to wait for host
 ;
 CONNECTLOOP:	mcrXMODEMRESP	XSTART					; send "C" to start connection with host
@@ -1194,7 +1208,8 @@ FILLBUFFER:		call		WAITHOST					; get a byte
 ;
 				inc			dl							; increment packet sequence number
 ;
-				cmp			word [ss:bp+XBYTECOUNT],(512*XMODEMSEC) ; is the buffer full?
+                mov         ax,[ss:bp+XWRATONCEBYTES]   ; get byte count write threshold
+				cmp			ax,[ss:bp+XBYTECOUNT]       ; is the buffer full?
 				je			WRITEDEST					; transfer the XMODEM buffer to HDD or memory
 ;
 				mcrXMODEMRESP	ACK						; send ACK
@@ -1245,7 +1260,7 @@ XFRTOHDD:		push		ds
 				mov			ax,BIOSDATASEG				; establish pointer to BIOS data
 				mov			ds,ax
 				mov			byte [ds:bdIDEFEATUREERR],0	; setup IDE command block, features not needed so '0'
-				mov			byte [ds:bdIDESECTORS],XMODEMSEC ; sectors to write at a time
+				mov			byte [ds:bdIDESECTORS],XWRITESIZE ; sectors to write at a time
 ;
 				mov			ax,[ss:bp+XLBAL]
 				mov			[ds:bdIDELBALO],al			; low LBA byte (b0..b7)
@@ -1266,11 +1281,11 @@ XFRTOHDD:		push		ds
 ;-----	write sectors of data from memory buffer to the drive
 ;
 				mov			bx,STAGEOFF					; [ES:BX] pointer to write buffer
-				mov			al,XMODEMSEC				; sector count
+				mov			al,XWRITESIZE				; sector count
 				call		IDEWRITE					; write data to drive
 				jc			HDDWRITEERR					; exit if HDD write error
 ;
-				add			word [ss:bp+XLBAL],XMODEMSEC ; advance LBA address
+				add			word [ss:bp+XLBAL],XWRITESIZE ; advance LBA address
 				adc			word [ss:bp+XLBAH],0
 ;
 ;-----	write data epilog for both memory and HDD writes
