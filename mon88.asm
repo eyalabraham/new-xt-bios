@@ -13,7 +13,7 @@
 ; cold ......................... cold start			;
 ; warm ......................... warm start			;
 ; memwr <seg> <off> ............ download to mem	;
-; drvwr <lbaH> <lbaL> .......... download to disk	;
+; drvwr <lbaH> <lbaL> [<sec>]... download to disk	;
 ; memrd <seg> <off> <cnt> ...... upload from mem	;
 ; drvrd <lbaH> <lbaL> <cnt> .... upload from disk	;
 ; go <seg> <off>' .............. run code			;
@@ -325,12 +325,13 @@ GETSEGOFF:		mov			si,MONOFF
 ;
 				sub			bp,2
 				mov			word [bp],FUNCMEMWR			; flag the function to write to the HDD
+				add         bp,8                        ; reset BP
 ;
 				call		XMODEMRX
 ;
 ;-----	exit command function
 ;
-MEMORYWREXIT:	add			sp,8						; discard parameters from stack
+MEMORYWREXIT:	mov			sp,bp						; discard parameters from stack
 				pop			bp							; restore registers
 				pop			ds
 				pop			si
@@ -341,7 +342,8 @@ MEMORYWREXIT:	add			sp,8						; discard parameters from stack
 ;-----------------------------------------------;
 ; get data from UART using XMODEM and write to	;
 ; drive location specified on command line		;
-; as '<lbaH> <lbaL>'							;
+; as '<lbaH> <lbaL>' and optional sector count  ;
+; to accumulate before writing to HDD           ;
 ;												;
 ; entry:										;
 ;	NA											;
@@ -375,17 +377,29 @@ GETWRITELBA:	mov			si,MONOFF
 				mov			[bp],ax						; save LBA address token
 				loop		GETWRITELBA					; loop through LBA address tokens
 ;
-                sub         bp,2
-                mov         word [bp],XHDDWRATONCE      ; accumulate sectors before writing to HDD
+;-----  get optional sector count accumulation param
+;
+                mov         cx,XHDDWRATONCE             ; default accumulated sector count before writing to HDD
+                mov         si,MONOFF
+                mov         ax,3                        ; third paramater
+                call        GETTOKEN                    ; check if optional paramater was provided
+                jc          NOCOUNTOPT                  ;  no parameter provided, go to use default
+                add         si,ax                       ;  parameter provided, get it
+                call        ASCII2NUM                   ; convert it to a number
+                jc          DRIVEWREXIT                 ; abort if error
+                mov         cx,ax
+NOCOUNTOPT:     sub         bp,2
+                mov         word [bp],cx                ; store sector count
 ;
 				sub			bp,2
 				mov			word [bp],FUNCDRIVEWR		; flag the function to write to the HDD
+				add         bp,8                        ; reset BP
 ;
 				call		XMODEMRX
 ;
 ;-----	exit command function
 ;
-DRIVEWREXIT:	add			sp,8						; discard parameters from stack
+DRIVEWREXIT:	mov         sp,bp						; discard parameters from stack
 				pop			bp							; restore registers
 				pop			ds
 				pop			si
@@ -1374,7 +1388,7 @@ MONCMDHELP:		db			"monitor commands:", CR, LF
 				db			"+ cold ........................ cold start", CR, LF
 				db			"+ warm ........................ warm start", CR, LF
 				db			"+ memwr <seg> <off> ........... download to mem.", CR, LF
-				db			"+ drvwr <lbaH> <lbaL> ......... download to disk", CR, LF
+				db			"+ drvwr <lbaH> <lbaL> [<sec>] . download to disk", CR, LF
 				db			"  memrd <seg> <off> <cnt> ..... upload from mem.", CR, LF
 				db			"  drvrd <lbaH> <lbaL> <cnt> ... upload from disk", CR, LF
 				db			"  go <seg> <off> .............. run code", CR, LF
