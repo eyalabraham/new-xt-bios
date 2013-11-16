@@ -41,11 +41,12 @@ CTRLZ:  		equ			1ah
 ;
 HOSTWAITTOV:	equ			15							; 15 seconds to wait for host connection after "C"
 XMODEMTOV:		equ			55							; 1 sec time out (55 x 18.2 mSec)
+XMODEMWAITERR:  equ         10                          ; ~2sec wait before exiting XMODEM upon error
 XMODEMBUFFER:	equ			133							; XMODEM character buffer size
 XMODEMPACKET:	equ			128							; XMODEM data packet size
 XMODEMCANSEQ:	equ			3							; number of CAN chracters to send
 XMEMWRATONCE:   equ         1                           ; number of 512B blocks to write at once
-XHDDWRATONCE:   equ         64                          ; number of 512B blocks to write at once
+XHDDWRATONCE:   equ         64                          ; number of 512B blocks to write at once (max. 127)
 ;
 ;======================================
 ; general macros

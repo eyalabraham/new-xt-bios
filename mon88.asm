@@ -599,7 +599,7 @@ MEMORYDUMPEXIT:	pop			ds
 ; read a sector from the drive and dump content	;
 ; to console. sector read from LBA address		;
 ; given by <lbaH> <lbaL>' to form the 28 bit	;
-; LBA address.					;
+; LBA address.                                  ;
 ; the routine prints only 1 sector of 512 bytes	;
 ;												;
 ; entry:										;
@@ -1067,24 +1067,28 @@ XCRC:			equ			-2							; XMODEM packet CRC
 ;
 ;-----	function parameter BP offsets
 ;
-XHDDMEM:		equ			2
-XWRITESIZE:     equ         4                           ; number of 512B blocks to write at-once
-XLBAH:			equ			6							; high LBA word
-XLBAL:			equ			8							; low LBA word
-XMEMSEG:		equ			6							; memory segment and offset to write
-XMEMOFF:		equ			8
+XHDDMEM:		equ			4
+XWRITESIZE:     equ         6                           ; number of 512B blocks to write at-once
+XLBAH:			equ			8							; high LBA word
+XLBAL:			equ			10							; low LBA word
+XMEMSEG:		equ			8							; memory segment and offset to write
+XMEMOFF:		equ			10
 ;
 ;		.. registers ..
+;       Xfer size in bytes  [BP-8]
 ;		HDD bytes count		[BP-6]
 ;		host EOT flag		[BP-4]
 ;		CRC					[BP-2]
-;		return address		[BP]
-;		HDD/mem.			[BP+2]
-;		LBA.H /SEGMENT		[BP+4]
-;		LBA.L /OFFSET		[BP+6]
+;       pushed BP           [BP]    <- SP at 'mov  bp,sp'
+;		return address		[BP+2]
+;		HDD/mem.			[BP+4]
+;       Xfer size in sec.   [BP+6]
+;		LBA.H /SEGMENT		[BP+8]
+;		LBA.L /OFFSET		[BP+10]
 ;		...
 ;
-XMODEMRX:		mov			bp,sp						; setup BP as variable/parameter pointer
+XMODEMRX:		push        bp
+                mov			bp,sp						; setup BP as variable/parameter pointer
 				sub			sp,LOCALVARSPACE			; move SP to make room for temp variable
 ;
 				push		ax
@@ -1122,7 +1126,7 @@ XMODEMRX:		mov			bp,sp						; setup BP as variable/parameter pointer
 				mov			word [ss:bp+XBYTECOUNT],0	; clear buffer byte count
 				mov         ax,512                      ; 512B in sector
 				mul         word [ss:bp+XWRITESIZE]     ; calculate byte count from sector count
-				jc          XMODEMRXEXIT                ; exit if CY.f='1' indicatint byte count overflow over 64KB
+				jc          XMODEMRXEXIT                ; exit if CY.f='1' indicating byte count overflow over 64KB
 				mov         [ss:bp+XWRATONCEBYTES],ax   ; store in byte count variable
 				mov			dx,HOSTWAITTOV				; set max time to wait for host
 ;
@@ -1154,13 +1158,10 @@ RESUMEONRETRY:	cmp			al,SOH						; is it a 128B packet?
 				cmp			al,CAN						; did the host send a CAN?
 				je			HOSTCANCEL					;  yes, cancel the session
 ;
-;-----	bad host respons, cancel
+;-----	bad host respons, exit
 ;
-BADHOSTRESP:	mov			cx,XMODEMCANSEQ
-				mcrXMODEMRESP	CAN						; send CAN
-				loop		BADHOSTRESP
-				mov			ax,2
-				call		WAITFIX						; wait a bit (~400mSec) to clear console
+				mov			ax,XMODEMWAITERR
+				call		WAITFIX						; wait a bit to clear console
 				mcrPRINT	XMODEMBADRESP				; print notification and exit
 				clc
 				jmp			XMODEMRXEXIT
@@ -1176,7 +1177,7 @@ HOSTEOT:		mcrXMODEMRESP	ACK						; host sent EOT, send ACK
 ;-----	host sent a CAN cancel
 ;
 HOSTCANCEL:		mcrXMODEMRESP	ACK						; host canceled the connection, send ACK
-				mov			ax,2
+				mov			ax,XMODEMWAITERR
 				call		WAITFIX						; wait a bit to clear console
 				mcrPRINT	XMODEMCANCEL				; print notification and exit
 				clc
@@ -1239,11 +1240,8 @@ LINECLEAR:		call		WAITHOST
 				mcrXMODEMRESP	NAK						; send NAK
 				jmp			RETRYPACKET					; and try again
 ;
-TOOMANYRETRY:	mov			cx,XMODEMCANSEQ
-				mcrXMODEMRESP	CAN						; cancel the connection
-				loop		TOOMANYRETRY				; send CAN characters
-				mov			ax,10
-				call		WAITFIX						; wait about 2 sec to clear console
+TOOMANYRETRY:	mov			ax,XMODEMWAITERR
+				call		WAITFIX						; wait to clear console
 				mcrPRINT	XMODEMRETRYERR
 				clc
 				jmp			XMODEMRXEXIT
@@ -1255,7 +1253,7 @@ WRITEDEST:		cmp			byte [ss:bp+XHDDMEM],FUNCDRIVEWR
 				cmp			byte [ss:bp+XHDDMEM],FUNCMEMWR
 				je			XFRTOMEM
 				stc
-				jmp			XMODEMRXEXIT
+				jmp			XMODEMRXEXIT                ; this is a bug condition! XHDDMEM should have known values
 ;
 ;-----	memory writes
 ;
@@ -1312,10 +1310,7 @@ XFREPILOG:		mov			word [ss:bp+XBYTECOUNT],0	; clear buffer count for next write 
 ;
 ;-----	handle HDD write error
 ;
-HDDWRITEERR:	mov			cx,XMODEMCANSEQ
-				mcrXMODEMRESP	CAN						; cancel the connection
-				loop		HDDWRITEERR					; send CAN characters
-				mov			ax,2
+HDDWRITEERR:	mov			ax,XMODEMWAITERR
 				call		WAITFIX						; wait a bit to clear console
 				mcrPRINT	XMODEMHDDERR				; print error message
 ;
@@ -1344,7 +1339,9 @@ XMODEMRXEXIT:	pushf									; save flags to preserve CY.f return status
 				pop			cx
 				pop			bx
 				pop			ax
-				add			sp,LOCALVARSPACE			; discard local variables
+;
+				mov			sp,bp                       ; discard local variables
+				pop         bp
 				ret
 ;
 ;-----	CRC calculator accumulating byte CRC
