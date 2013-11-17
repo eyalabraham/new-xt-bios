@@ -1582,7 +1582,7 @@ INT13F0A:		push		ds
 ;
 				push		es
 				push		di							; save ES, DI becasue we only want to know if drive ID is OK
-				call		CHECKDRV					; check is valid drive
+				call		CHECKDRV					; check if valid drive
 				pop			di
 				pop			es
 				jnc			F02VALIDDRV					; drive is valid, continue
@@ -1621,7 +1621,7 @@ F02CMDSET:		mov			[ds:bdIDELBALO],al			; low LBA byte (b0..b7)
 				jnc			F02GETRDDATA				; no error, get read data
 				mov			ah,INT13BADCMD				; set 'bad command passed to driver'
 				mov			al,0						; nothing read
-				add			sp,4						; adjust SP for saved registers AX and BX
+				add			sp,4						; adjust SP for saved registers AX and DX
 				stc
 				jmp			F02EXIT						; command could not be sent to drive
 ;
@@ -1652,7 +1652,7 @@ INT13F0B:		push		ds
 ;
 				push		es
 				push		di							; save ES, DI becasue we only want to know if drive ID is OK
-				call		CHECKDRV					; check is valid drive
+				call		CHECKDRV					; check if valid drive
 				pop			di
 				pop			es
 				jnc			F03VALIDDRV					; drive is valid continue
@@ -1691,7 +1691,7 @@ F03CMDSET:		mov			[ds:bdIDELBALO],al			; low LBA byte (b0..b7)
 				jnc			F03WRDATA					; no error, write data
 				mov			ah,INT13BADCMD				; set 'bad command passed to driver'
 				mov			al,0						; nothing written
-				add			sp,4						; adjust SP for saved registers AX and BX
+				add			sp,4						; adjust SP for saved registers AX and DX
 				stc
 				jmp			F03EXIT						; command could not be sent to drive
 ;
@@ -1714,9 +1714,49 @@ F03EXIT:		pop			ds							; restore DS and exit
 ;-----------------------------------------------;
 ;		INT 13, function 05h - Format track     ;
 ;-----------------------------------------------;
-; @@- fix for bug #14
+; @@- fix for bug #5
 ;
-INT13F05:       ret
+INT13F05:       push        bx
+                push        cx
+                push        dx
+                push        di
+                push        es
+;
+                call        CHECKDRV                    ; check drive ID and point to drive data drive is valid
+                jnc         F05VALIDDRV
+                mov         ah,INT13BADCMD              ; signal 'bad parameter' error
+                stc
+                jmp         F05EXIT
+;
+F05VALIDDRV:    and         cl,11000000b                ; zero out lower track number bits in CL
+                inc         cl                          ; CL index to track #1 on the cylinder
+                mov         al,[es:di+ddDRVGEOSEC]      ; get sectors per track, [ES:DI] points to drive data table
+                mov         ah,03h                      ; INT13/03h write sectors function
+                mov         bx,cs
+                mov         es,bx
+                mov         bx,EMPTYSECTOR              ; setup [ES:BX] to point to dummy sector filled with 'format byte'
+;
+SECFORMATLOOP:  push        ax
+                mov         al,1                        ; write 1 sector
+                int         13h                         ; call function to write formatted sector
+                jc          F05ERR                      ; if error exit the formatting loop
+                pop         ax                          ; retrieve AX
+                inc         cl                          ; increment sector number in CL
+                dec         al                          ; decrement sector count
+                jnz         SECFORMATLOOP               ; loop for remaining sectors
+;
+                mov         ah,INT13NOERR               ; 'no error' return code
+                jmp         F05EXIT
+;
+F05ERR:         add         sp,2                        ; discard pushed AX
+                stc                                     ; re-assert CY.f to indicate error
+;
+F05EXIT:        pop         es
+                pop         di
+                pop         dx
+                pop         cx
+                pop         bx
+                ret
 ;
 ;-----------------------------------------------;
 ;		INT 13, function 08h - get drive param	;
@@ -3021,7 +3061,7 @@ DRV0DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; inter-block gap length/gap between sectors
 				db			0ffh						; data length, if sector length not specified
 				db			0							; gap length between sectors for format
-				db			0f6h						; fill byte for formatted sectors
+				db			FORMATFILL					; fill byte for formatted sectors
 				db			1							; head settle time in milliseconds
 				db			1							; motor startup time in eighths of a second
 ;
@@ -3041,7 +3081,7 @@ DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; inter-block gap length/gap between sectors
 				db			0ffh						; data length, if sector length not specified
 				db			0							; gap length between sectors for format
-				db			0f6h						; fill byte for formatted sectors
+				db			FORMATFILL					; fill byte for formatted sectors
 				db			1							; head settle time in milliseconds
 				db			1							; motor startup time in eighths of a second
 ;
@@ -3061,7 +3101,7 @@ DRV2DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; inter-block gap length/gap between sectors
 				db			0ffh						; data length, if sector length not specified
 				db			0							; gap length between sectors for format
-				db			0f6h						; fill byte for formatted sectors
+				db			FORMATFILL					; fill byte for formatted sectors
 				db			1							; head settle time in milliseconds
 				db			1							; motor startup time in eighths of a second
 ;
@@ -3302,6 +3342,10 @@ ASCII2SCAN:		db			000h						; 0		NUL		Null char
 				db			053h						; 127			Delete
 ;
 ASCIILIST:		equ			($-ASCII2SCAN)							; ASCII table length for range checking
+;
+;-----  sector filled with formatting byte to use for INT13/05 format track
+;
+EMPTYSECTOR:    times 512 db FORMATFILL                             ; 512 bytes for sector formatting
 ;
 ;	*********************************
 ;	*** RESET VECTOR AND EPILOG   ***

@@ -22,6 +22,7 @@ CR:          	equ         0dh							; carriage return
 TAB:			equ			09h							; horizontal tab
 BS:				equ			08h							; back space
 SPACE:			equ			20h							; space
+FORMATFILL:     equ         0f6h                        ; formatted sector fill byte
 ;
 ;======================================
 ; XMODEM equates
