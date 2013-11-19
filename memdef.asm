@@ -16,7 +16,7 @@
 ; memory map
 ;--------------------------------------
 ;
-;					OS memry map (DOS)								Monitor mode
+;					OS memory map (DOS)								Monitor mode
 ;				==========================						=====================
 ;
 ;									20bit physical									20bit physical

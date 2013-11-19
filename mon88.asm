@@ -1061,7 +1061,7 @@ LOCALVARSPACE:	equ			(LOCALVARIABLES*2)			; stack space for local variables
 ;-----	local variables BP offsets
 ;
 XWRATONCEBYTES: equ         -8                          ; byte count to write-at-once, calculated from XWRITESIZE
-XBYTECOUNT:		equ			-6							; bytes in HDD write buffer
+XBYTECOUNT:		equ			-6							; bytes in write buffer
 XEOT:			equ			-4							; flag to signal that EOT was sent by host
 XCRC:			equ			-2							; XMODEM packet CRC
 ;
@@ -1195,8 +1195,8 @@ RCVPACKET:		call		WAITHOST					; wait for packet number byte
 				cmp			al,dl						; compare complement of sequence number
 				jne			PACKETERR					; packet error if no match
 ;
-				mov			bx,[ss:bp+XBYTECOUNT]		; set BX to index of HDD write buffer
-				mov			word [ss:bp+XCRC],0			; xero out CRC
+				mov			bx,[ss:bp+XBYTECOUNT]		; set BX to index of write buffer
+				mov			word [ss:bp+XCRC],0			; zero out CRC
 FILLBUFFER:		call		WAITHOST					; get a byte
 				jc			PACKETERR					; packet error if time out
 				mov			[ds:si+bx],al				; store byte
@@ -1261,18 +1261,20 @@ XFRTOMEM:		mov			ax,[ss:bp+XMEMSEG]
 				mov			es,ax
 				mov			di,[ss:bp+XMEMOFF]			; establish pointer to destination memory region in [ES:DI]
 				mov			cx,[ss:bp+XBYTECOUNT]		; setup counter for byte count
-				rep movsw								; copy the buffer
+				rep movsb								; copy the buffer
 				mov			si,STAGEOFF					; reset SI to XMODEM temp buffer offset
 				mov			[ss:bp+XMEMOFF],di			; save DI offset for next transfer
 				jmp			XFREPILOG					; conclude data transfer
 ;
 ;-----	setup IDE command block for HDD writes
 ;
-XFRTOHDD:		push		ds
+XFRTOHDD:		mov         cx,word [ss:bp+XWRITESIZE]  ; get block count to write at-once
+;
+                push		ds
 				mov			ax,BIOSDATASEG				; establish pointer to BIOS data
 				mov			ds,ax
 				mov			byte [ds:bdIDEFEATUREERR],0	; setup IDE command block, features not needed so '0'
-				mov			byte [ds:bdIDESECTORS],XWRITESIZE ; sectors to write at a time
+				mov			byte [ds:bdIDESECTORS],cl   ; sectors to write at a time
 ;
 				mov			ax,[ss:bp+XLBAL]
 				mov			[ds:bdIDELBALO],al			; low LBA byte (b0..b7)
@@ -1293,11 +1295,11 @@ XFRTOHDD:		push		ds
 ;-----	write sectors of data from memory buffer to the drive
 ;
 				mov			bx,STAGEOFF					; [ES:BX] pointer to write buffer
-				mov			al,XWRITESIZE				; sector count
+				mov			al,cl                       ; sector count
 				call		IDEWRITE					; write data to drive
 				jc			HDDWRITEERR					; exit if HDD write error
 ;
-				add			word [ss:bp+XLBAL],XWRITESIZE ; advance LBA address
+				add			word [ss:bp+XLBAL],cx       ; advance LBA address
 				adc			word [ss:bp+XLBAH],0
 ;
 ;-----	write data epilog for both memory and HDD writes
