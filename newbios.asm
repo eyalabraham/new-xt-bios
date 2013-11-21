@@ -1496,7 +1496,7 @@ INT12:			sti
 ; '?' not sure if this function is required
 ;
 ;														; function
-INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	.	- Reset disk system
+INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	*	- Reset disk system
 				dw			(INT13F01+ROMOFF)			;	01h	*	- Get disk status
 				dw			(INT13F02+ROMOFF)			;	02h	*	- Read disk sectors
 				dw			(INT13F03+ROMOFF)			;	03h	*	- Write disk sectors
@@ -1554,7 +1554,8 @@ INT13:			sti										; enable interrupts
 ;		INT 13, function 00h - disk reset		;
 ;-----------------------------------------------;
 ;
-INT13F00:		mov			ah,INT13NOERR				; return with no error
+INT13F00:		call        IDERESET                    ; reset the host HDD
+                mov			ah,INT13NOERR				; return with no error
 				clc										; and successful completion
 				ret
 ;
