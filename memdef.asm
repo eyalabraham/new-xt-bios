@@ -284,13 +284,38 @@ struc           DRVDATA
 ;
 ddDRIVEID:		resb		1					; drive ID
 ddDASDTYPE:		resb		1					; type of drive (see INT13, 15)
-ddTYPE:			resb		1					; CMOS drive type: 0 = HDD, 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.3/1.44Mb
+ddCMOSTYPE:		resb		1					; CMOS drive type: 0 = HDD, 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.3/1.44Mb
 ddDRVGEOCYL:	resw		1					; cylinders
 ddDRVGEOHEAD:	resb		1					; heads
 ddDRVGEOSEC:	resb		1					; sectors per track
 ddDRVMAXLBA:	resw		1					; Max LBAs
 ddDRVHOSTOFF:	resw		1					; LBA offset into IDE host drive
 ddDBT:			resb		11					; Disk Base Table (DBT)
+;
+endstruc
+;
+;--------------------------------------
+; INDENTIFY command returned data structure
+; page 103
+;--------------------------------------
+;
+struc           IDEIDENTIFYSTRUCT
+;
+                resw        1
+iiCYL:          resw        1                   ; logical cyliders
+                resw        1
+iiHEADS:        resw        1                   ; logical heads
+                resw        2
+iiSEC:          resw        1                   ; sectors per track
+                resw        3
+iiSERIANNUM:    resb        20                  ; serial number 20 ASCII characters
+                resw        3
+iiFIRMWARE:     resb        8                   ; firmware level 8 ASCII characters
+iiMODEL:        resb        40                  ; model number 40 ASCII characters
+                resw        13
+iiLBA:          resw        2                   ; total number of LBAs
+                resw        193
+iiCHECKSUM:     resw        1                   ; block checksum
 ;
 endstruc
 ;

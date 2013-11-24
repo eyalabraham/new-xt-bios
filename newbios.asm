@@ -1031,16 +1031,18 @@ INT10COUNT:		equ			($-INT10JUMPTBL)/2			; length of table for validation
 ;
 INT10:			sti
 				cmp			ah,INT10COUNT
-				jae			INT10IGNORE					; exit if function out of range
-				push		si
+				jb          INT10OK                     ; continue if function is in range
+				call        INT10IGNORE                 ; call 'ignore' handler if out of range
+				jmp         INT10EXIT
+INT10OK:        push		si
 				mov			si,ax						; save function and command in SI
 				mov			al,ah
 				cbw										; AX has function number
 				sal			ax,1						; conert to jump table index
 				xchg		si,ax						; restore function/command and move jump index to SI
 				call		word [cs:(si+INT10JUMPTBL+ROMOFF)]	; call function using jump table
-				pop			si
-				iret
+                pop			si
+INT10EXIT:      iret
 ;
 ;-----------------------------------------------;
 ; INT10, 00h - Set Video Mode					;
@@ -1197,6 +1199,7 @@ INT12:			sti
 ; Disk IO service routine.													;
 ; source: http://stanislavs.org/helppc/int_13.html							;
 ; XTIDE:  http://xtideuniversalbios.googlecode.com/svn/trunk/				;
+; IBM BIOS page.171 / 5-23                                                  ;
 ;																			;
 ; entry:																	;
 ;																			;
@@ -1500,14 +1503,14 @@ INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	*	- Reset disk system
 				dw			(INT13F01+ROMOFF)			;	01h	*	- Get disk status
 				dw			(INT13F02+ROMOFF)			;	02h	*	- Read disk sectors
 				dw			(INT13F03+ROMOFF)			;	03h	*	- Write disk sectors
-				dw			(INT13IGNORE+ROMOFF)		;	04h     - Verify disk sectors
+				dw			(INT13F04+ROMOFF)           ;	04h .   - Verify disk sectors
 				dw			(INT13F05+ROMOFF)           ;	05h *   - Format disk track
 				dw			(INT13IGNORE+ROMOFF)		;	06h		- Format track and set bad sector flag (XT & portable)
 				dw			(INT13IGNORE+ROMOFF)		;	07h		- Format the drive starting at track (XT & portable)
 				dw			(INT13F08+ROMOFF)			;	08h	*	- Get current drive parameters (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	09h     - Initialize fixed disk base tables (XT & newer)
-				dw			(INT13F0A+ROMOFF)			;	0ah	*	- Read long sector (XT & newer)
-				dw			(INT13F0B+ROMOFF)			;	0bh	*	- Write long sector (XT & newer)
+				dw			(INT13F0A+ROMOFF)			;	0ah	.	- Read long sector (XT & newer)
+				dw			(INT13F0B+ROMOFF)			;	0bh	.	- Write long sector (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	0ch		- Seek to cylinder (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	0dh		- Alternate disk reset (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;  	0eh		- Read sector buffer (XT & portable only)
@@ -1530,19 +1533,25 @@ INT13COUNT:		equ			($-INT13JUMPTBL)/2			; length of table for validation
 ;
 INT13:			sti										; enable interrupts
 				cmp			ah,INT13COUNT
-				jae			INT13IGNORE					; exit if function out of range
-				mov			si,ax						; save function and command in SI
+				jb			INT13OK                     ; continue if function is in range
+				call        INT13IGNORE                 ; call 'ignore' handler if out of range
+				mov         ah,INT13BADCMD              ; signal function error
+				stc
+				jmp         INT13EXIT
+INT13OK:        push        si
+                mov			si,ax						; save function and command in SI
 				mov			al,ah
 				cbw										; AX has function number
 				sal			ax,1						; convert to jump table index
 				xchg		si,ax						; restore function/command and move jump index to SI
 				call		word [cs:(si+INT13JUMPTBL+ROMOFF)]	; call function using jump table
+				pop         si
 ;
 ;-----	store function call status
 ;
-				push		ds
+INT13EXIT:      push		ds
 				push		ax
-				mov			ax,BIOSDATASEG				; establosh pointer to BIOS data structure
+				mov			ax,BIOSDATASEG				; establish pointer to BIOS data structure
 				mov			ds,ax
 				pop			ax
 				mov			byte [ds:bdDRIVESTATUS],ah	; store last status
@@ -1713,6 +1722,14 @@ F03EXIT:		pop			ds							; restore DS and exit
 				ret
 ;
 ;-----------------------------------------------;
+;       INT 13, function 04h - verify track     ;
+;-----------------------------------------------;
+;
+INT13F04:       mov         ah,INT13NOERR               ; return with no error
+                clc                                     ; and successful completion
+                ret
+;
+;-----------------------------------------------;
 ;		INT 13, function 05h - Format track     ;
 ;-----------------------------------------------;
 ; @@- fix for bug #5
@@ -1765,21 +1782,27 @@ F05EXIT:        pop         es
 ;
 INT13F08:		call		CHECKDRV					; check if drive exists
 				jnc			F08VALIDDRV					; drive is valid, continue
-				mov			ah,INT13BADCMD				; drive parameter is not valid, signal error 'bad parameter'
+				mov			ah,INT13BADPARAM			; drive parameter is not valid, signal error 'bad parameter'
 				stc
 				jmp			F08EXIT
-F08VALIDDRV:	mov			bl,[es:di+ddTYPE]			; ES:DI = top of drive table, get drive type, DL = drive count
-				mov			ch,[es:di+ddDRVGEOCYL]		; get low byte of cylinder count
+;
+;-----  set common parameters for fixed disk and diskette
+;
+F08VALIDDRV:	mov			ch,[es:di+ddDRVGEOCYL]		; ES:DI = top of drive table, get low byte of cylinder count
 				mov			al,[es:di+ddDRVGEOCYL+1]	; get high byte of cylinder count
 				mov			cl,6
 				shl			al,cl						; move 2 high order cylinder count bits
 				add			al,[es:di+ddDRVGEOSEC]		; add sectors per track
 				mov			cl,al						; move to CL
 				mov			dh,[es:di+ddDRVGEOHEAD]		; get head count
+				dec         dh                          ; head count is zero based!
 				call		COUNTDRV
-				mov			dl,al						; get drive count
-				add			di,ddDBT					; point DI at the DBT offset
-				mov			ah,INT13NOERR				; indicate no errors
+                mov         dl,al                       ; get drive count
+                xor         bx,bx
+                mov         bl,[es:di+ddCMOSTYPE]       ; get drive type
+                add			di,ddDBT					; point DI at the DBT offset
+                xor         ax,ax
+                mov			ah,INT13NOERR				; indicate no errors
 				clc
 F08EXIT:		ret
 ;
@@ -1787,10 +1810,8 @@ F08EXIT:		ret
 ;		INT 13, function 15h - disk/DASD type	;
 ;-----------------------------------------------;
 ;
-INT13F15:		push		bx
-				push		di
+INT13F15:		push		di
 				push		es
-				mov			bl,dl						; save drive ID
 				call		CHECKDRV					; check if drive exists
 				jnc			F15VALIDDRV					; drive is valid, [ES:DI] points to drive info in ROM, continue
 				xor			ah,ah						; drive not present
@@ -1798,48 +1819,46 @@ INT13F15:		push		bx
 				xor			dx,dx
 				stc
 				jmp			F15EXIT
-F15VALIDDRV:	cmp			bl,80h						; is the requested ID an HDD?
-				jae			F15HDD						; yes
-				mov			ah,01h						; diskette, no change detection present
-				clc										; no error
-				jmp			F15EXIT
-F15HDD:			mov			ah,03h						; HDD
-				mov			cx,[es:di+ddDRVMAXLBA]		; get HDD sectors (which is the LBA count)
-				xor			dx,dx
-				clc										; no error
+F15VALIDDRV:    mov         ah,[es:di+ddDASDTYPE]      	; get disk type
+                cmp         dl,80h                      ; is this a fixed disk?
+                jb          F15FLOPPY                   ;  it is a floppy, so exit here
+                mov         cx,[es:di+ddDRVMAXLBA]      ;  fixed disk, so get sector count (which is the LBA count)
+                xor         dx,dx
+F15FLOPPY:      clc
 F15EXIT:		pop			es
 				pop			di
-				pop			bx
 				ret
 ;
 ;----------------------------------------------------;
 ;		INT 13, function 18h - media type for format ;
 ;----------------------------------------------------;
 ;
-INT13F18:		call		CHECKDRV					; check if drive exists
+INT13F18:		push        bx
+                call		CHECKDRV					; check if drive exists
 				jnc			F18VALIDDRV					; drive is valid, [ES:DI] points to drive info in ROM, continue
-				mov			ah,INT13BADCMD				; drive parameter is not valid, signal error 'bad parameter'
+				mov			ah,INT13UNSUPMED			; drive parameter is not valid, signal error 'bad parameter'
 				stc
 				jmp			F18EXIT
 F18VALIDDRV:	mov			bx,cx						; save CX
 				cmp			bh,[es:di+ddDRVGEOCYL]		; ES:DI = top of drive table, compare low byte of cylinder count
-				jne			F18NOTSUPPORTED				; error if not equal
+				jne			F18NOTSUP				    ; error if not equal
 				mov			al,[es:di+ddDRVGEOCYL+1]	; get high byte of cylinder count
 				mov			cl,6
 				shl			al,cl						; move 2 high order cylinder count bits
 				add			al,[es:di+ddDRVGEOSEC]		; add sectors per track
-				cmp			bl,al						; compare high order cylinder bits + heads
-				jne			F18NOTSUPPORTED				; error if not equal
+				cmp			bl,al						; compare high order cylinder bits + sectors per track
+				jne			F18NOTSUP				    ; error if not equal
 				add			di,ddDBT					; point DI at the DBT offset
 				mov			ah,INT13NOERR				; indicate no errors
 				clc
 				jmp			F18EXIT
-F18NOTSUPPORTED:mov			ah,INT13UNSUPMED			; signal 'unsupported track/media'
+F18NOTSUP:      mov			ah,INT13UNSUPMED			; signal 'unsupported track/media'
 				stc
-F18EXIT:		ret
+F18EXIT:		pop         bx
+                ret
 ;
 ;-----------------------------------------------;
-;		all ignored function simply exit here	;
+;		all ignored function exit here          ;
 ;-----------------------------------------------;
 ;
 INT13IGNORE:	mcrPRINT	INT13DBG					; print unhandled function code
@@ -3046,14 +3065,14 @@ DRVTABLE:		dw			(DRV0+ROMOFF)				; parameter table for drive 0 (floppy A:)
 				dw			(DRV1+ROMOFF)				; parameter table for drive 1 (floppy B:)
 				dw			(DRV2+ROMOFF)				; parameter table for drive 2 (HDD C:)
 ;
-DRV0:			db			00h							; drive ID
-				db			1							; type = diskette, no change detection present (see INT 13, 08h and 15h)
-				db			4							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-				dw			80							; # cylinders -> 3.5" floppy 1.44MB (0..79)
-				db			2							; # heads (0..1)
-				db			18							; # sectors/track (1..18)
-				dw			2880						; Max LBAs (0..2879)
-				dw			0							; LBA offset into IDE host drive
+DRV0:			db			00h							; [ddDRIVEID]    drive ID
+				db			1							; [ddDASDTYPE]   diskette, no change detection present (see INT 13, 08h and 15h)
+				db			4							; [ddCMOSTYPE]   1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
+				dw			80							; [ddDRVGEOCYL]  # cylinders -> 3.5" floppy 1.44MB (0..79)
+				db			2							; [ddDRVGEOHEAD] # heads (0..1)
+				db			18							; [ddDRVGEOSEC]  # sectors/track (1..18)
+				dw			2880						; [ddDRVMAXLBA]  Max LBAs (0..2879)
+				dw			0							; [ddDRVHOSTOFF] LBA offset into IDE host drive
 DRV0DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; specify byte 2; head load time, DMA mode
 				db			1							; timer ticks to wait before disk motor shutoff
@@ -3088,7 +3107,7 @@ DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 ;
 DRV2:			db			80h							; drive ID
 				db			3							; type = HDD, fixed disk (see INT 13, 15h)
-				db			4							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
+				db			0							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
 				dw			612							; # cylinders -> HDD 20MB (0..611)
 				db			4							; # heads (0..3)
 				db			17							; # sectors/track (1..17)
@@ -3356,7 +3375,7 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)	; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "11/12/13"          		; Release date MM/DD/YY
+                db          "11/23/13"          		; Release date MM/DD/YY
 ;
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                		; Computer type (XT)
