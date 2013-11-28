@@ -782,7 +782,7 @@ NEXTDECCHAR:	lodsb									; get character
 				jz			ASCII2NUMOK					; exit if done processing string
 				call		CHAR2NUM					; convert character to number now in AL
 				jc			ASCII2NUMERR				; exit if error in digit
-				cbw
+				xor         ah,ah
 				mul			cx							; multiply the number by the power
 				jo			ASCII2NUMERR				; if DX has sugnificant digits then we have an error
 				add			bx,ax						; accumulate sums in BX
@@ -801,7 +801,7 @@ NEXTHEXCHAR:	lodsb									; get character
 				jz			ASCII2NUMOK					; exit if done processing string
 				call		CHAR2NUM					; convert character to number now in AL
 				jc			ASCII2NUMERR				; exit if error in digit
-				cbw
+				xor         ah,ah
 				mul			cx							; multiply the number by the power
 				jo			ASCII2NUMERR				; if DX has sugnificant digits then we have an error
 				add			bx,ax						; accumulate sums in BX

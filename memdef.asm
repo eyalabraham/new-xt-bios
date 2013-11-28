@@ -5,6 +5,7 @@
 ;
 ;  BIOS replacement for PC/XT clone
 ;  memory segment and data structures.
+;  BIOS data strictires from http://www.bioscentral.com/misc/bda.htm
 ;
 ;********************************************************************
 ;
@@ -171,7 +172,7 @@ bdKEYBUF:		resw        16                  ; 40:1E - Keyboard Buffer (Scan,Value
                 resb        1                   ; 40:3E - Drive Calibration bits 0 - 3
                 resb        1                   ; 40:3F - Drive Motor(s) on 0-3,7=write
                 resb        1                   ; 40:40 - Ticks (18/sec) til motor off
-bdDRIVESTATUS:	resb        1                   ; 40:41 + Floppy return code stat byte
+bdDRIVESTATUS1:	resb        1                   ; 40:41 + Floppy return code stat byte
                                                 ;       |
                                                 ;       - 001h   1 = bad ic 765 command req.
                                                 ;       - 002h   2 = address mark not found
@@ -208,7 +209,7 @@ bdVIDEOMODE:    resb        1                   ; 40:49 + Current CRT mode  (sof
                 resw        1                   ; 40:4A - Columns on CRT screen
                 resw        1                   ; 40:4C - Bytes in the regen region
                 resw        1                   ; 40:4E - Byte offset in regen region
-                resw        8                   ; 40:50 - Cursor pos for up to 8 pages
+bdCURSPOS:      resw        8                   ; 40:50 - Cursor pos for up to 8 pages
                 resw        1                   ; 40:60 - Current cursor mode setting
 bdVIDEOPAGE:    resb        1                   ; 40:62 - Current page on display
                 resw        1                   ; 40:63 - Base addres (B000h or B800h)
@@ -233,7 +234,10 @@ bdBOOTFLAG:		resw        1                   ; 40:72 - Warm boot if 1234h value
 ;
 ; Hard disk scratchpad
 ;
-                resw        2                   ; 40:74 - Hard disk scratchpad
+bdDRIVESTATUS2: resb        1                   ; 40:74 - Hard disk operation status
+bdFIXEDDRVCNT:  resb        1                   ; 40:75 - fixed drive count
+                resb        1                   ; 40:76 - fixed disk control byte
+                resb        1                   ; 40:77 - fixed disk IO port offset
 ;
 ; Time-out areas COM/LPT
 ;
@@ -244,6 +248,33 @@ bdBOOTFLAG:		resw        1                   ; 40:72 - Warm boot if 1234h value
 ;
 bdKEYBUFSTART:  resw        1                   ; 40:80 - Contains 1Eh, buffer start
 bdKEYBUFEND:    resw        1                   ; 40:82 - Contains 3Eh, buffer end
+;
+                resb        1                   ; 40:84 - Number of video rows (minus 1)
+                resb        2                   ; 40:85 - Number of scan lines per character
+                resb        1                   ; 40:87 - Video display adapter options
+                resb        1                   ; 40:88 - Video display adapter switches
+                resb        1                   ; 40:89 - VGA video flags 1
+                resb        1                   ; 40:8A - VGA video flags 2
+                resb        1                   ; 40:8B - Floppy disk configuration data
+                resb        1                   ; 40:8C - Hard disk drive controller status
+                resb        1                   ; 40:8D - Hard disk drive error
+                resb        1                   ; 40:8E - Hard disk drive task complete flag
+                resb        1                   ; 40:8F - Floppy disk drive information
+                resb        1                   ; 40:90 - Diskette 0 media state
+                resb        1                   ; 40:91 - Diskette 1 media state
+                resb        1                   ; 40:92 - Diskette 0 operational starting state
+                resb        1                   ; 40:93 - Diskette 1 operational starting status
+                resb        1                   ; 40:94 - Diskette 0 current cylinder
+                resb        1                   ; 40:95 - Diskette 1 current cylinder
+                resb        1                   ; 40:96 - Keyboard status flags 3
+                resb        1                   ; 40:97 - Keyboard status flags 4
+                resb        4                   ; 40:98 - Segment:Offset address of user wait flag pointer
+                resb        4                   ; 40:9C - User wait count
+                resb        1                   ; 40:A0 - User wait flag
+                resb        7                   ; 40:A1 - Local area network (LAN) bytes
+                resb        4                   ; 40:A8 - Segment:Offset address of video parameter control block
+                resb        68                  ; 40:AC - Reserved
+                resb        16                  ; 40:F0 - Intra-applications communications area
 ;
 ;--------------------------------------
 ; XMODEM data structure,
@@ -288,7 +319,8 @@ ddCMOSTYPE:		resb		1					; CMOS drive type: 0 = HDD, 1 = 5.25/360K, 2 = 5.25/1.2
 ddDRVGEOCYL:	resw		1					; cylinders
 ddDRVGEOHEAD:	resb		1					; heads
 ddDRVGEOSEC:	resb		1					; sectors per track
-ddDRVMAXLBA:	resw		1					; Max LBAs
+ddDRVMAXLBAHI:	resw		1					; Max LBAs high word
+ddDRVMAXLBALO:  resw        1                   ; Max LBAs loe word
 ddDRVHOSTOFF:	resw		1					; LBA offset into IDE host drive
 ddDBT:			resb		11					; Disk Base Table (DBT)
 ;

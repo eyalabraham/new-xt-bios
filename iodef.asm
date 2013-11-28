@@ -22,6 +22,7 @@ CR:          	equ         0dh							; carriage return
 TAB:			equ			09h							; horizontal tab
 BS:				equ			08h							; back space
 SPACE:			equ			20h							; space
+ESC:            equ         1Bh                         ; escape character
 FORMATFILL:     equ         0f6h                        ; formatted sector fill byte
 ;
 ;======================================
@@ -463,6 +464,9 @@ BAUDDIVHI:		equ			00h					; with 4.9152MHz crustal
 ; source: http://wiki.osdev.org/ATA_PIO_Mode
 ;         http://www.angelfire.com/de2/zel/
 ;--------------------------------------
+;
+FLOPPYCNT:      equ         2                   ; system floppy drive count. must match DIP switches!!
+FIXEDCNT:       equ         1                   ; system fixed disk count
 ;
 IDETOV:			equ			55					; IDE drive time out value in BIOS ticks (approx. 1sec)
 ;

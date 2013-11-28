@@ -21,6 +21,10 @@
 BINDIR = .
 DEPENDENCIES = newbios.asm memdef.asm iodef.asm
 
+#DEBUG = -dINT13DEBUG -dINT10DEBUG
+#DEBUG = -dINT10DEBUG
+#DEBUG = -dINT13DEBUG
+
 all : bin srec
 
 bin : newbios.bin
@@ -28,10 +32,10 @@ bin : newbios.bin
 srec : newbios.srec
 
 newbios.bin : $(DEPENDENCIES)
-	nasm -f bin newbios.asm -o $(BINDIR)/newbios.bin -l $(BINDIR)/newbios.lst
+	nasm $(DEBUG) -f bin newbios.asm -o $(BINDIR)/newbios.bin -l $(BINDIR)/newbios.lst
 
 newbios.srec : $(DEPENDENCIES)
-	nasm -f srec newbios.asm -o $(BINDIR)/newbios.srec -l $(BINDIR)/newbios.lst
+	nasm $(DEBUG) -f srec newbios.asm -o $(BINDIR)/newbios.srec -l $(BINDIR)/newbios.lst
 
 .PHONY : CLEAN
 clean :

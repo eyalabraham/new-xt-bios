@@ -526,6 +526,10 @@ VECCOPY:		movsw									; copy the vector offser component
 				sub			ah,ah
 				mov			[ds:bdEQUIPMENT],ax			; save equipment flags
 ;
+;-----  fixed disk count
+;
+                mov         byte [ds:bdFIXEDDRVCNT],FIXEDCNT ; count of fixed drives
+;
 ;-----	print configuration bits
 ;
 				mcrPRINT	SYSCONFIG					; print system configuration message
@@ -970,6 +974,17 @@ INT0D:			push		ax
 ;       AL video mode                           ;
 ;       40:49 will reflect the mode             ;
 ;       model will not change in implementation ;
+;   AH = 02h                                    ;
+;       BH = page number (0 for graphics modes) ;
+;       DH = row                                ;
+;       DL = column                             ;
+;   returns nothing                             ;
+;     - positions relative to 0,0 origin        ;
+;     - 80x25 uses coordinates 0,0 to 24,79     ;
+;       40x25 uses 0,0 to 24,39                 ;
+;     - setting the data in the BIOS Data Area  ;
+;       at location 40:50 does not take         ;
+;       immediate effect and is not recommended ;
 ;   AH = 05h                                    ;
 ;       AL = new page number                    ;
 ;	AH = 09h write attribute/char at cursor     ;
@@ -977,6 +992,13 @@ INT0D:			push		ax
 ;	AH = 0Eh write TTY to active page			;
 ;		AL character ASCII						;
 ;		(all other input ignored)               ;
+;   AH = 09                                     ;
+;       AL = ASCII character to write           ;
+;       BH = display page                       ;
+;       BL = character attribute                ;
+;       CX = count to write (CX >= 1)           ;
+;   returns nothing                             ;
+;    - does not move the cursor                 ;
 ;   AH = 0Fh                                    ;
 ;       AH = number of screen columns           ;
 ;       AL = mode currently set                 ;
@@ -1008,11 +1030,11 @@ INT0D:			push		ax
 ;														; function
 INT10JUMPTBL:	dw			(INT10F00+ROMOFF)			; * 00h		- set CRT mode
 				dw			(INT10F01+ROMOFF)			; .	01h		- set cursor type
-				dw			(INT10F02+ROMOFF)			; .	02h		- set cursor position
+				dw			(INT10F02+ROMOFF)			; *	02h		- set cursor position
 				dw			(INT10F03+ROMOFF)			; *	03h		- read cursor position
 				dw			(INT10IGNORE+ROMOFF)		;	04h		- read light pen position
 				dw			(INT10F05+ROMOFF)           ; * 05h		- select active display
-				dw			(INT10F06+ROMOFF)			; .	06h		- scroll active page up
+				dw			(INT10F06+ROMOFF)			; *	06h		- scroll active page up
 				dw			(INT10IGNORE+ROMOFF)		;	07h		- scroll active page down
 				dw			(INT10IGNORE+ROMOFF)		;   08h		- read attribute/character at cursor
 				dw			(INT10F09+ROMOFF)			; *	09h		- write attribute/character at cursor
@@ -1022,9 +1044,9 @@ INT10JUMPTBL:	dw			(INT10F00+ROMOFF)			; * 00h		- set CRT mode
 				dw			(INT10IGNORE+ROMOFF)		;	0dh		- read dot
 				dw			(INT10F0E+ROMOFF)			; *	0eh		- write character to page
 				dw			(INT10F0F+ROMOFF)			; *	0fh		- return current video state
-				dw			(INT10IGNORE+ROMOFF)		;	10h		- reserved
-				dw			(INT10IGNORE+ROMOFF)		;	11h		- reserved
-				dw			(INT10IGNORE+ROMOFF)		;	12h		- reserved
+				dw			(INT10IGNORE+ROMOFF)		;	10h		- Set/Get Palette Registers (EGA/VGA)
+				dw			(INT10IGNORE+ROMOFF)		;	11h		- Character Generator Routine (EGA/VGA)
+				dw			(INT10IGNORE+ROMOFF)		;	12h		- Video Subsystem Configuration (EGA/VGA)
 				dw			(INT10F13+ROMOFF)			; *	13h		- write string
 ;
 INT10COUNT:		equ			($-INT10JUMPTBL)/2			; length of table for validation
@@ -1034,10 +1056,17 @@ INT10:			sti
 				jb          INT10OK                     ; continue if function is in range
 				call        INT10IGNORE                 ; call 'ignore' handler if out of range
 				jmp         INT10EXIT
-INT10OK:        push		si
+;
+%ifdef         INT10DEBUG
+INT10OK:        call        PRINTREGS
+                push        si
+%else
+INT10OK:        push        si
+%endif
+;
 				mov			si,ax						; save function and command in SI
 				mov			al,ah
-				cbw										; AX has function number
+				xor         ah,ah                       ; AX has function number
 				sal			ax,1						; conert to jump table index
 				xchg		si,ax						; restore function/command and move jump index to SI
 				call		word [cs:(si+INT10JUMPTBL+ROMOFF)]	; call function using jump table
@@ -1060,18 +1089,42 @@ INT10F00:       sti
 ;
 ;-----------------------------------------------;
 ; INT10, 01h - Set Cursor Type					;
-; INT10, 02h - Set Cursor Position				;
 ;-----------------------------------------------;
 ;
-INT10F01:
-INT10F02:		ret
+INT10F01:       ret
 ;
 ;-----------------------------------------------;
-; INT10, 03h - return cursor position as 0,0	;
+; INT10, 02h - Set Cursor Position              ;
+; cursor positioning on a line console          ;
+; with VT100 command                            ;
 ;-----------------------------------------------;
 ;
-INT10F03:		xor			cx,cx
-				xor			dx,dx
+INT10F02:		push        ax
+                push        ds
+;
+                mov         ax,dx                       ; setup position info
+                inc         al                          ; VT100 coordinates are '1'-based
+                inc         ah
+                call        VT100CUP                    ; position cursor with VT100 command
+;
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; establish pointer to BIOS data
+                mov         [ds:bdCURSPOS],dx           ; save cursor position
+;
+F02NOMOVE:      pop         ds
+                pop         ax
+                ret
+;
+;-----------------------------------------------;
+; INT10, 03h - return cursor position           ;
+;-----------------------------------------------;
+;
+INT10F03:		push        ds
+                xor			cx,cx                       ; ignore scan line info
+                mov         dx,BIOSDATASEG              ; establish pointer to BIOS data area
+                mov         ds,dx
+				mov			dx,[ds:bdCURSPOS]           ; get cursor position
+				pop         ds
 				ret
 ;
 ;-----------------------------------------------;
@@ -1093,17 +1146,53 @@ INT10F05:       sti
 ; INT10, 06h - Scroll Window Up					;
 ;-----------------------------------------------;
 ;
-INT10F06:		ret
+INT10F06:		push        ax
+                push        cx
+;
+                or          al,al                       ; is AL = '0' ?
+                jz          F06CLS                      ;  yes, so clear screen
+;
+                xor         ah,ah
+                mov         cx,ax                       ;  no, so CX is now row-count to scroll up
+F06SCROLLLOOP:  mcrPRINT    VT100IND                    ; scroll window
+                loop        F06SCROLLLOOP
+                jmp         F06EXIT
+;
+F06CLS:         mcrPRINT    VT100ED2                    ; VT100 command to clear screen
+;
+F06EXIT:        pop         cx
+                pop         ax
+                ret
 ;
 ;-----------------------------------------------;
-; INT10, 09h and 0Ah - write ASCII at cursor	;
-; INT10, 0eh - (AL) has ASCII of character		;
+; INT10, 09h - write ASCII at cursor            ;
 ; (BL) has attribute that will be ignored		;
 ;-----------------------------------------------;
 ;
-INT10F09:
-INT10F0A:		nop										; fall through to function 0Eh
+INT10F09:       jcxz        F09EXIT                     ; exit immediately if CX='0'
+                push        ax
+                push        bx
+                push        cx
 ;
+                mov         bx,cx                       ; save copy of CX
+F09REPCHAR:     call        PRINTCHAR                   ; send character(s) to UART console
+                loop        F09REPCHAR                  ; repeat CX times
+;
+                mov         ax,bx                       ; setup to move cursor back
+                call        VT100CUB                    ; call VT100 command to move cursor left
+;
+                pop         cx
+                pop         bx
+                pop         ax
+F09EXIT:        ret
+;
+;-----------------------------------------------;
+; INT10, 0Ah - write ASCII at cursor            ;
+; INT10, 0eh - (AL) has ASCII of character      ;
+; (BL) has attribute that will be ignored       ;
+;-----------------------------------------------;
+;
+INT10F0A:
 INT10F0E:		push		dx
 				call		TXBYTE						; send character to UART console
 				pop			dx
@@ -1155,7 +1244,9 @@ INT10IGNORE:	mcrPRINT	INT10DBG					; print unhandled function code
 				xchg		al,ah
 				call		PRINTHEXB
 				xchg		ah,al
-				mcrPRINT	CRLF
+				mcrPRINT    CRLF
+;
+                call        PRINTREGS                   ; print register contents
 ;
 				ret
 ;
@@ -1538,10 +1629,17 @@ INT13:			sti										; enable interrupts
 				mov         ah,INT13BADCMD              ; signal function error
 				stc
 				jmp         INT13EXIT
+;
+%ifdef         INT13DEBUG
+INT13OK:        call        PRINTREGS
+                push        si
+%else
 INT13OK:        push        si
+%endif
+;
                 mov			si,ax						; save function and command in SI
 				mov			al,ah
-				cbw										; AX has function number
+				xor         ah,ah						; AX has function number
 				sal			ax,1						; convert to jump table index
 				xchg		si,ax						; restore function/command and move jump index to SI
 				call		word [cs:(si+INT13JUMPTBL+ROMOFF)]	; call function using jump table
@@ -1554,7 +1652,8 @@ INT13EXIT:      push		ds
 				mov			ax,BIOSDATASEG				; establish pointer to BIOS data structure
 				mov			ds,ax
 				pop			ax
-				mov			byte [ds:bdDRIVESTATUS],ah	; store last status
+				mov			byte [ds:bdDRIVESTATUS1],ah	; store last status
+				mov         byte [ds:bdDRIVESTATUS2],ah
 				pop			ds
 ;
 				retf		2							; return and discard saved flags
@@ -1575,7 +1674,7 @@ INT13F00:		call        IDERESET                    ; reset the host HDD
 INT13F01:		push		ds
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; set a pointer to BIOS data area
-				mov			al,[ds:bdDRIVESTATUS]		; get status byte of last command
+				mov			al,[ds:bdDRIVESTATUS1]		; get status byte of last command
 				mov			ah,INT13NOERR				; reset status byte to no error
 				clc
 F01EXIT:		pop			ds
@@ -1795,13 +1894,15 @@ F08VALIDDRV:	mov			ch,[es:di+ddDRVGEOCYL]		; ES:DI = top of drive table, get low
 				add			al,[es:di+ddDRVGEOSEC]		; add sectors per track
 				mov			cl,al						; move to CL
 				mov			dh,[es:di+ddDRVGEOHEAD]		; get head count
-				dec         dh                          ; head count is zero based!
-				call		COUNTDRV
-                mov         dl,al                       ; get drive count
                 xor         bx,bx
                 mov         bl,[es:di+ddCMOSTYPE]       ; get drive type
                 add			di,ddDBT					; point DI at the DBT offset
-                xor         ax,ax
+                cmp         dl,80h                      ; is this a fixed or floppy drive ID?
+                jae         F08FIXED                    ;  this is a fixed disk
+                mov         dl,FLOPPYCNT                ;  get floppy drive count
+                jmp         F08DONE
+F08FIXED:       mov         dl,FIXEDCNT
+F08DONE:        xor         ax,ax
                 mov			ah,INT13NOERR				; indicate no errors
 				clc
 F08EXIT:		ret
@@ -1815,15 +1916,13 @@ INT13F15:		push		di
 				call		CHECKDRV					; check if drive exists
 				jnc			F15VALIDDRV					; drive is valid, [ES:DI] points to drive info in ROM, continue
 				xor			ah,ah						; drive not present
-				xor			cx,cx
-				xor			dx,dx
 				stc
 				jmp			F15EXIT
 F15VALIDDRV:    mov         ah,[es:di+ddDASDTYPE]      	; get disk type
                 cmp         dl,80h                      ; is this a fixed disk?
                 jb          F15FLOPPY                   ;  it is a floppy, so exit here
-                mov         cx,[es:di+ddDRVMAXLBA]      ;  fixed disk, so get sector count (which is the LBA count)
-                xor         dx,dx
+                mov         cx,[es:di+ddDRVMAXLBAHI]    ;  fixed disk, so get sector count high word
+                mov         dx,[es:di+ddDRVMAXLBALO]    ;  and low word
 F15FLOPPY:      clc
 F15EXIT:		pop			es
 				pop			di
@@ -1865,7 +1964,9 @@ INT13IGNORE:	mcrPRINT	INT13DBG					; print unhandled function code
 				xchg		al,ah
 				call		PRINTHEXB
 				xchg		ah,al
-				mcrPRINT	CRLF
+				mcrPRINT    CRLF
+;
+                call        PRINTREGS                   ; print register contents
 ;
 				push		ds
 				mov			ax,BIOSDATASEG				; set pointer to BIOS data area
@@ -1940,7 +2041,7 @@ INT16:			sti										; enable other interrupts
 				xchg		al,ah
 				call		PRINTHEXB
 				xchg		ah,al
-				mcrPRINT	CRLF
+				mcrPRINT    CRLF
 ;
 INT16EXIT:		pop			bx
 				pop			ds
@@ -2757,30 +2858,34 @@ IDEDRQEXIT:		pop			ds
 ;	all other work registers preserved			;
 ;-----------------------------------------------;
 ;
-CHS2LBA:		push		di
+CHS2LBA:		push        bx
+                push        cx
+                push		di
 				push		es
 				push		bp
 				mov			bp,sp						; establish calculator stack
 				call		CHECKDRV					; check for valid drive ID, should be valid here
-				jc			CHS2LBAERR					; not valid (odd!) so exit with CY.f set
+				jc			CHS2LBAEXIT					; not valid (odd!) so exit with CY.f set
 ;
 ;-----	store formula parameters on stack
 ;
+                xor         ax,ax
 				mov			al,cl						; get sector number
 				and			al,00111111b				; clear cylinder bits
-				cbw										; convert to word
 				dec			ax							; subtract 1
 				push		ax							; save on stack (s - 1) @ [bp-2]
-				mov			al,[es:di+ddDRVGEOSEC]		; get sectors per track
-				cbw										; conver to word
+;
+				mov			al,[es:di+ddDRVGEOSEC]		; get drive sectors per track
 				push		ax							; save on stack S @ [bp-4]
+;
 				mov			al,dh						; get head number
-				cbw										; conver to word
 				push		ax							; save on stack	h @ [bp-6]
-				mov			al,[es:di+ddDRVGEOHEAD]		; get head count
-				cbw										; conver to word
+;
+				mov			al,[es:di+ddDRVGEOHEAD]		; get drive head count
+				inc         al                          ; head count stored as '0' based!
 				push		ax							; save on stack H @ [bp-8]
-				mov			al,ch						; low order cylinder number
+;
+				mov			al,ch						; get low order cylinder number
 				mov			ah,cl						; get high order cylinder bits
 				rol			ah,1						; rotate into place
 				rol			ah,1
@@ -2788,21 +2893,48 @@ CHS2LBA:		push		di
 ;
 ;-----	calculate/translate CHS to LBA
 ;
-;														; this assumes that the multiplication result fits in AX
 				mul			word [bp-8]					; ( s * H
+;
 				add			ax,word [bp-6]				;         + h )
-				mul			word [bp-4]					;               * S
+				adc         dx,0
+;
+				mov         cx,dx                       ;               * S
+				mul			word [bp-4]
+				mov         bx,ax                       ; first multiplication in [CX:BX]
+				mov         ax,cx
+				mov         cx,dx
+				mul         word [bp-4]                 ; second multiplication in [DX:AX]
+				jc          CHS2LBAERR                  ; overflow and error in conversion
+				mov         dx,ax
+				xor         ax,ax
+				add         ax,bx
+				adc         dx,cx                       ; combine multiplications
+;
 				add         ax,word [bp-2]				;                   + (s-1)
+				adc         dx,0
+;
+                cmp         dx,[es:di+ddDRVMAXLBAHI]    ; check LBA is in drive LBA range
+                ja          CHS2LBAERR
+                cmp         ax,[es:di+ddDRVMAXLBALO]
+                jae         CHS2LBAERR
 ;
 				add			ax,[es:di+ddDRVHOSTOFF]		; add LBA offset for virtual drive location
-				adc			ax,0						; complete the 32 bit addition
+				adc			dx,0						; complete the 32 bit addition
+				clc
+				jmp         CHS2LBAEXIT
+;
+CHS2LBAERR:     mov         ax,0ffffh                   ; load 28-bit bogus LBA to be safe
+                mov         dx,0fffh
+                stc
 ;
 ;-----	exit
 ;
-				mov			sp,bp						; restore SP
-CHS2LBAERR:		pop			bp
+CHS2LBAEXIT:    mov			sp,bp						; restore SP
+                pop			bp
 				pop			es
 				pop			di
+				pop         cx
+				pop         bx
 				ret
 ;
 ;-----------------------------------------------;
@@ -2827,7 +2959,7 @@ CHECKDRV:		push		ax
 				mov			es,ax
 				mov			si,(DRVPARAM+ROMOFF)		; establish pointer to ROM drive table
 				mov			al,[es:si]					; get drive count
-				cbw
+				xor         ah,ah
 				mov			cx,ax						; make CX into a counter
 				inc			si							; point to drive-data tables pointer list
 ;
@@ -2880,7 +3012,7 @@ SEVENSEG:		cmp			al,0fh						; is number in range
 ;
 SEVENSEGDISP:	push		si							; save work registers
 				mov			si,ax						; save command in SI
-				cbw										; AX is index into 7-segment LED pattern table
+				xor         ah,ah						; AX is index into 7-segment LED pattern table
 				xchg		si,ax						; AX has original command, SI has index into table
 				mov			al,[cs:si+SEGMENTTBL+ROMOFF]; convert number in AL to 7-seg pattern
 				xor			al,ah						; turn D.P on or off
@@ -2987,11 +3119,134 @@ ASCII2SCANCODE:	xor			ah,ah
 				cmp			al,ASCIILIST				; check if ASCII code is out of table range
 				jae			NOSCANCODE					; yes, exit with scan code AH=0
 				push		si
-				cbw										; AX is index into scan code look up table
+				xor         ah,ah						; AX is index into scan code look up table
 				mov			si,ax						; SI now has index too
 				mov			ah,[cs:si+ASCII2SCAN+ROMOFF]; get scan code byte
 				pop			si
 NOSCANCODE:		ret
+;
+;-----------------------------------------------;
+; this routine uses VT100 sequence ED2 to clear ;
+; the terminal screen                           ;
+;                                               ;
+; entry:                                        ;
+;   NA                                          ;
+; exit:                                         ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+VT100CLS:       mcrPRINT    VT100ED2                    ; invoke clear screen escape
+                ret
+;
+;-----------------------------------------------;
+; this routine uses VT100 sequence CUP to       ;
+; position the cursor in the terminal screen    ;
+; Esc[row;colH  cursor to screen row,col        ;
+;                                               ;
+; entry:                                        ;
+;   AH row                                      ;
+;   AL column                                   ;
+; exit:                                         ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+VT100CUP:       push        ax
+                push        bx
+                mov         bx,ax                       ; save location info
+                mcrPRINT    VT100ESC                    ; start ESC sequence
+                mov         al,bh
+                xor         ah,ah
+                call        PRINTDEC                    ; print row number
+                mov         al,';'
+                call        PRINTCHAR                   ; print semicolon
+                mov         al,bl
+                call        PRINTDEC                    ; print column number
+                mov         al,'H'
+                call        PRINTCHAR                   ; close sequence
+                pop         bx
+                pop         ax
+                ret
+;
+;-----------------------------------------------;
+; this routine uses VT100 sequence CUB to       ;
+; move the cursor left                          ;
+; Esc[ValueD  move cursor left n lines          ;
+;                                               ;
+; entry:                                        ;
+;   AX position count
+; exit:                                         ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+VT100CUB:       push        ax
+                mcrPRINT    VT100ESC                    ; start ESC sequence
+                call        PRINTDEC                    ; output position count
+                mov         al,'D'
+                call        PRINTCHAR                   ; close sequence
+                pop         ax
+                ret
+;
+;-----------------------------------------------;
+; this routine can be used for debug.           ;
+; when called, it will print contents of all    ;
+; CPU registers.                                ;
+;                                               ;
+; entry:                                        ;
+;   NA                                          ;
+; exit:                                         ;
+;   all register contents print to console      ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+PRINTREGS:      push        ax
+                push        bx
+                push        cx
+                push        dx
+                push        si
+                push        di
+                push        bp
+                push        es
+                push        ds                          ; save all work registers
+;
+                mcrPRINT    PRAX                        ; print AX
+                call        PRINTHEXW
+                mcrPRINT    PRBX
+                mov         ax,bx                       ; print BX
+                call        PRINTHEXW
+                mcrPRINT    PRCX
+                mov         ax,cx                       ; print CX
+                call        PRINTHEXW
+                mcrPRINT    PRDX
+                mov         ax,dx                       ; print DX
+                call        PRINTHEXW
+                mcrPRINT    PRSI
+                mov         ax,si                       ; print SI
+                call        PRINTHEXW
+                mcrPRINT    PRDI
+                mov         ax,di                       ; print DI
+                call        PRINTHEXW
+                mcrPRINT    PRES
+                mov         ax,es                       ; print ES
+                call        PRINTHEXW
+                mcrPRINT    PRDS
+                mov         ax,ds                       ; print DS
+                call        PRINTHEXW
+                mcrPRINT    PRBP
+                mov         ax,bp                       ; print BP
+                call        PRINTHEXW
+;
+                mcrPRINT    CRLF
+;
+                pop         ds                          ; restore all work registers
+                pop         es
+                pop         bp
+                pop         di
+                pop         si
+                pop         dx
+                pop         cx
+                pop         bx
+                pop         ax
+                ret
 ;
 ;	*********************************
 ;	***       STATIC DATA         ***
@@ -3060,7 +3315,7 @@ VECTORS:		dw			(IGNORE+ROMOFF)				;		00h Divide by zero
 ;  (3) hosr drive has 39,070,000 addressable LBAs; resulting
 ;      LBA from #2 shall not exceed maximum addresable LBAs
 ;
-DRVPARAM:		db			3							; attached drives (max of 3, 2 x floppy, 1 x HDD)
+DRVPARAM:		db			(FLOPPYCNT+FIXEDCNT)        ; attached drives (max of 3, 2 x floppy, 1 x HDD)
 DRVTABLE:		dw			(DRV0+ROMOFF)				; parameter table for drive 0 (floppy A:)
 				dw			(DRV1+ROMOFF)				; parameter table for drive 1 (floppy B:)
 				dw			(DRV2+ROMOFF)				; parameter table for drive 2 (HDD C:)
@@ -3068,10 +3323,11 @@ DRVTABLE:		dw			(DRV0+ROMOFF)				; parameter table for drive 0 (floppy A:)
 DRV0:			db			00h							; [ddDRIVEID]    drive ID
 				db			1							; [ddDASDTYPE]   diskette, no change detection present (see INT 13, 08h and 15h)
 				db			4							; [ddCMOSTYPE]   1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-				dw			80							; [ddDRVGEOCYL]  # cylinders -> 3.5" floppy 1.44MB (0..79)
-				db			2							; [ddDRVGEOHEAD] # heads (0..1)
+				dw			79							; [ddDRVGEOCYL]  # cylinders -> 3.5" floppy 1.44MB (0..79)
+				db			1							; [ddDRVGEOHEAD] # heads (0..1)
 				db			18							; [ddDRVGEOSEC]  # sectors/track (1..18)
-				dw			2880						; [ddDRVMAXLBA]  Max LBAs (0..2879)
+				dw          0                           ; [ddDRVMAXLBAHI]  Max LBAs high word
+				dw			2880						; [ddDRVMAXLBALO]  Max LBAs low word (0..2879)
 				dw			0							; [ddDRVHOSTOFF] LBA offset into IDE host drive
 DRV0DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; specify byte 2; head load time, DMA mode
@@ -3088,10 +3344,11 @@ DRV0DBT:		db			0							; specify byte 1; step-rate time, head unload time
 DRV1:			db			01h							; drive ID
 				db			1							; type = diskette, no change detection present (see INT 13, 08h and 15h)
 				db			4							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-				dw			80							; # cylinders -> 3.5" floppy 1.44MB (0..79)
-				db			2							; # heads (0..1)
+				dw			79							; # cylinders -> 3.5" floppy 1.44MB (0..79)
+				db			1							; # heads (0..1)
 				db			18							; # sectors/track (1..18)
-				dw			2880						; Max LBAs (0..2879)
+				dw          0                           ; Max LBAs high word
+				dw			2880						; Max LBAs low word (0..2879)
 				dw			3000						; LBA offset into IDE host drive
 DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; specify byte 2; head load time, DMA mode
@@ -3108,10 +3365,11 @@ DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 DRV2:			db			80h							; drive ID
 				db			3							; type = HDD, fixed disk (see INT 13, 15h)
 				db			0							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-				dw			612							; # cylinders -> HDD 20MB (0..611)
-				db			4							; # heads (0..3)
+				dw			611							; # cylinders -> HDD 20MB (0..611)
+				db			3							; # heads (0..3)
 				db			17							; # sectors/track (1..17)
-				dw			41616 						; Max LBAs (0..41615)
+				dw          0                           ; Max LBAs high word
+				dw			41616 						; Max LBAs low word (0..41615)
 				dw			6000						; LBA offset into IDE host drive
 DRV2DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; specify byte 2; head load time, DMA mode
@@ -3124,19 +3382,6 @@ DRV2DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			FORMATFILL					; fill byte for formatted sectors
 				db			1							; head settle time in milliseconds
 				db			1							; motor startup time in eighths of a second
-;
-;DRV2DBT:		dw			612							; maximum number of cylinders
-;				db			4							; maximum number of heads
-;				dw			0							; starting reduced write current cylinder
-;				dw			0							; starting write pre-comp cylinder
-;				db			128							; maximum ECC data burst length
-;				db			0							; control byte:
-;				db			0							;
-;				db			0							; 3 bytes not used for PC/XT
-;				db			0							;
-;				dw			0							; landing zone
-;				db			17							; sectors per track
-;				db			0							; reserved
 ;
 ;-----	text strings
 ;
@@ -3154,7 +3399,7 @@ CHECKPOINT7:	db			TAB, "=== CHECK POINT 7", CR, LF, 0
 CHECKPOINT8:	db			TAB, "=== CHECK POINT 8", CR, LF, 0
 CHECKPOINT9:	db			TAB, "=== CHECK POINT 9", CR, LF, CR, LF, 0
 ;
-BANNER:         db          CR, LF
+BANNER:         db          ESC, "[2J", CR, LF
 				db			"XT New Bios, 8088 cpu", CR, LF
 				db			"Eyal Abraham, 2013 (c)", CR, LF
                 db          "build: "
@@ -3175,7 +3420,7 @@ DMAERR:			db			"8237 DMA controller write/verify fail", CR, LF, "halting.", 0
 MEMTEST2KOK:	db			"first 2K byte memory test ok", CR, LF, "stack set", CR, LF, 0
 MEMTEST2KERR:	db			"first 2K byte memery test fail", CR, LF, "halting.", 0
 INTVECOK:		db			"interrupt vectors and interrupt service set", CR, LF, 0
-SYSCONFIG:		db			"system configuration switchs: 0x", 0
+SYSCONFIG:		db			"system configuration switches: 0x", 0
 RAMTESTMSG:		db			CR, "RAM test: ", 0
 KBMSG:			db			"KB", 0
 RAMTESTERR:		db			CR, LF, "RAM test fail", CR, LF, "halting.", 0
@@ -3198,12 +3443,28 @@ TYPE3MSG:		db			"  type       03 fixed disk", CR, LF, 0
 LBAOFFMSG:		db			"  LBA offset ", 0
 BOOTINGMSG:		db			"booting OS", CR, LF, 0
 IPLFAILMSG:		db			"OS boot (IPL) failed", CR, LF, 0
+PRAX:           db          CR, LF, " ax=0x", 0
+PRBX:           db          " bx=0x", 0
+PRCX:           db          " cx=0x", 0
+PRDX:           db          " dx=0x", 0
+PRSI:           db          CR, LF, " si=0x", 0
+PRDI:           db          " di=0x", 0
+PRES:           db          " es=0x", 0
+PRDS:           db          " ds=0x", 0
+PRBP:           db          " bp=0x", 0
+;
+; VT100 escape codes
+; http://ascii-table.com/ansi-escape-sequences-vt-100.php
+;
+VT100ESC:       db          ESC, "[", 0                 ; escape sequence
+VT100ED2:       db          ESC, "[2J", 0               ; clear screen
+VT100IND:       db          ESC, "D", 0                 ; move/scroll window up one line
 ;
 ;-----	text strings for INT function debug
 ;
-INT10DBG:		db			"=== int-10 unhandled function 0x", 0
-INT13DBG:		db			"=== int-13 unhandled function 0x", 0
-INT16DBG:		db			"=== int-16 unhandled function 0x", 0
+INT10DBG:		db			CR, LF, "=== int-10 unhandled function 0x", 0
+INT13DBG:		db			CR, LF, "=== int-13 unhandled function 0x", 0
+INT16DBG:		db			CR, LF, "=== int-16 unhandled function 0x", 0
 ;
 ;-----	7-seg bit table   dp gfedcba
 ;                           \|||||||
@@ -3375,7 +3636,7 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)	; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "11/23/13"          		; Release date MM/DD/YY
+                db          "11/27/13"          		; Release date MM/DD/YY
 ;
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                		; Computer type (XT)
