@@ -854,8 +854,7 @@ INT02EXIT:		pop			ax
 ;	all work registers saved					;
 ;-----------------------------------------------;
 ;
-INT08:			sti										; turn on interrupts
-				push		ds
+INT08:          push		ds
 				push		ax
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; establish segment of BIOS data
@@ -1149,16 +1148,29 @@ INT10F05:       sti
 INT10F06:		push        ax
                 push        cx
 ;
-                or          al,al                       ; is AL = '0' ?
-                jz          F06CLS                      ;  yes, so clear screen
+                push        ax
+                mov         al,ch                       ; set top row
+                inc         al                          ; row count is '1' based
+                mov         ah,dh                       ; set bottom row
+                inc         ah                          ; row count is '1' based
+                call        VT100DECSTBM                ; set scroll window
+                mov         al,1                        ; AL= column 1, AH = is already bottom row
+                call        VT100CUP                    ; position cursor at bottom of window
+                pop         ax
 ;
-                xor         ah,ah
-                mov         cx,ax                       ;  no, so CX is now row-count to scroll up
+                or          al,al                       ; is AL = '0' ?
+                jnz         F06SCROLL                   ;  no, just scroll line count
+                mov         al,dh                       ;  yes, clear window so calculate row to remove
+                sub         al,ch
+;
+F06SCROLL:      xor         ah,ah
+                inc         ax                          ; scroll one extra time
+                mov         cx,ax                       ; so CX is now row-count to scroll up
 F06SCROLLLOOP:  mcrPRINT    VT100IND                    ; scroll window
                 loop        F06SCROLLLOOP
-                jmp         F06EXIT
 ;
-F06CLS:         mcrPRINT    VT100ED2                    ; VT100 command to clear screen
+                mov         ax,1901h                    ; reset top (1) and bottom (25) row numbers
+                call        VT100DECSTBM
 ;
 F06EXIT:        pop         cx
                 pop         ax
@@ -3183,6 +3195,34 @@ VT100CUB:       push        ax
                 call        PRINTDEC                    ; output position count
                 mov         al,'D'
                 call        PRINTCHAR                   ; close sequence
+                pop         ax
+                ret
+;
+;-----------------------------------------------;
+; this routine sets the terminat window         ;
+; Esc[<r1>;<r2>r set top and bottom of window   ;
+;                                               ;
+; entry:                                        ;
+;   AL top row                                  ;
+;   AH bottom row                               ;
+; exit:                                         ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+VT100DECSTBM:   push        ax
+                push        bx
+                mov         bx,ax
+                mcrPRINT    VT100ESC
+                mov         al,bl
+                xor         ah,ah
+                call        PRINTDEC                    ; print top row number
+                mov         al,';'
+                call        PRINTCHAR                   ; print semicolon
+                mov         al,bh
+                call        PRINTDEC                    ; print bottom row  number
+                mov         al,'r'
+                call        PRINTCHAR                   ; close sequence
+                pop         bx
                 pop         ax
                 ret
 ;

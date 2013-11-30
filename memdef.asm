@@ -5,7 +5,7 @@
 ;
 ;  BIOS replacement for PC/XT clone
 ;  memory segment and data structures.
-;  BIOS data strictires from http://www.bioscentral.com/misc/bda.htm
+;  BIOS data table from http://www.bioscentral.com/misc/bda.htm
 ;
 ;********************************************************************
 ;
@@ -283,8 +283,8 @@ bdKEYBUFEND:    resw        1                   ; 40:82 - Contains 3Eh, buffer e
 ;
 ; temporary buffer for XMODEM
 ;
-bdXMODEMBUFF:	resb		XMODEMBUFFER		; 40:84 - temporary buffer for XMODEM
-bdLAST:			resb		1					; 40:109 - address of last byte in BIOS data area
+bdXMODEMBUFF:	resb		XMODEMBUFFER		; 40:100 - temporary buffer for XMODEM
+bdLAST:			resb		1					; 40:185 - address of last byte in BIOS data area
 ;
 endstruc
 ;
