@@ -136,6 +136,14 @@ MAX_MEMORY:		equ			704					; maximum kilobytes of memory allowed
 DRIVEPARAMVEC:	equ			078h				; drive parameter table vector
 ;
 ;--------------------------------------
+; fixed disk parameter vectors
+; @@- http://www.ctyme.com/intr/rb-6135.htm
+;--------------------------------------
+;
+VECFIXDDSK0:    equ         104h                ; segment:offset for vector 41h
+VECFIXDDSK1:    equ         118h                ; segment:offset for vector 46h
+;
+;--------------------------------------
 ; BIOS control and status data structure
 ;--------------------------------------
 ;

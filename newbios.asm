@@ -491,12 +491,20 @@ VECCOPY:		movsw									; copy the vector offser component
 				loop		VECCOPY						; loop to copy all vectors
 				pop			ds
 ;
-;-----	clear special vector
+;-----	setup special vectors
 ;
 				xor			ax,ax
 				mov			es,ax
 				mov			word [es:7Ch],0				; there are no special graphics chars in the system
 				mov			word [es:7Eh],0				; so zero vector 1Fh
+;
+                mov         word [es:VECFIXDDSK1],0     ; fixed disk 1 param table - no second fixed disk
+                mov         word [es:VECFIXDDSK1+2],0   ; fixed disk 1 param table
+;
+                mov         ax,(DRV2DBT+ROMOFF)         ; get offset of FDPT
+                mov         word [es:VECFIXDDSK0],ax    ; fixed disk 0 param table - point to FDPT
+                mov         ax,cs                       ; get segment of FDPT
+                mov         word [es:VECFIXDDSK0+2],ax  ; fixed disk 1 param table
 ;
 				mcrPRINT	INTVECOK					; print interrupts set message
 ;
@@ -858,6 +866,7 @@ INT08:          push		ds
 				push		ax
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; establish segment of BIOS data
+                cli                                     ; disable interrupts while manipulating clock
 				inc			word [ds:bdTIMELOW]			; increment time
 				jnz			USERSERVICE					; counter rolls to '0000' every hour at the 18.2Hz interrupt rate
 				inc			word [ds:bdTIMEHI]			; increment hour counter
@@ -865,7 +874,9 @@ INT08:          push		ds
 				jnz			USERSERVICE					; no, continue to user int service hook
 				mov			word [ds:bdTIMEHI],0		; reset day's hour counter
 				mov			byte [ds:bdNEWDAY],1		; new day
-USERSERVICE:	int			1ch							; invoke user interrupt service
+;
+USERSERVICE:	sti                                     ; reenable interrupts
+                int			1ch							; invoke user interrupt service
 ;
 				mov			al,byte [ds:bdTIMELOW]		; blink 7-seg's decimal point every 8 cycles, will yield about 1Hz blink rate
 				and			al,00000111b				; count of 8 interrupts complete?
@@ -3402,7 +3413,7 @@ DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			1							; head settle time in milliseconds
 				db			1							; motor startup time in eighths of a second
 ;
-DRV2:			db			80h							; drive ID
+DRV2:			db			80h							; drive ID -- fixed disk 0
 				db			3							; type = HDD, fixed disk (see INT 13, 15h)
 				db			0							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
 				dw			611							; # cylinders -> HDD 20MB (0..611)
@@ -3411,17 +3422,41 @@ DRV2:			db			80h							; drive ID
 				dw          0                           ; Max LBAs high word
 				dw			41616 						; Max LBAs low word (0..41615)
 				dw			6000						; LBA offset into IDE host drive
-DRV2DBT:		db			0							; specify byte 1; step-rate time, head unload time
-				db			0							; specify byte 2; head load time, DMA mode
-				db			1							; timer ticks to wait before disk motor shutoff
-				db			2							; bytes per sector code: 0 = 128, 1 = 256, 2 = 512, 3 = 1024
-				db			17							; sectors per track (last sector number)
-				db			0							; inter-block gap length/gap between sectors
-				db			0ffh						; data length, if sector length not specified
-				db			0							; gap length between sectors for format
-				db			FORMATFILL					; fill byte for formatted sectors
-				db			1							; head settle time in milliseconds
-				db			1							; motor startup time in eighths of a second
+DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
+                db          4                           ; ( 2) # of heads
+                db          0                           ; ( 3) reserved
+                db          0                           ; ( 4) reserved
+                dw          0                           ; ( 5) starting write precompensation cylinder number
+                db          0                           ; ( 7) reserved
+                db          065h                        ; ( 8) control byte
+                dw          0                           ; ( 9) reserved
+                db          0                           ; (11) reserved
+                dw          0                           ; (12) cylinder number of landing zone
+                db          17                          ; (14) # sectors per track
+                db          0                           ; (15) reserver
+;DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@- http://www.ctyme.com/intr/rb-6135.htm
+;                db          4                           ; ( 2) # of heads
+;                dw          0                           ; ( 3) starting reduced write current cylinder
+;                dw          0                           ; ( 5) starting write precompensation cylinder number
+;                db          0                           ; ( 7) maximum ECC burst length
+;                db          065h                        ; ( 8) control byte
+;                db          0                           ; ( 9) standard time out
+;                db          0                           ; (10) formatting time out
+;                db          0                           ; (11) drive check time out
+;                dw          0                           ; (12) cylinder number of landing zone
+;                db          17                          ; (14) # sectors per track
+;                db          0                           ; (15) reserver
+;DRV2DBT:		db			0							; specify byte 1; step-rate time, head unload time
+;				db			0							; specify byte 2; head load time, DMA mode
+;				db			1							; timer ticks to wait before disk motor shutoff
+;				db			2							; bytes per sector code: 0 = 128, 1 = 256, 2 = 512, 3 = 1024
+;				db			17							; sectors per track (last sector number)
+;				db			0							; inter-block gap length/gap between sectors
+;				db			0ffh						; data length, if sector length not specified
+;				db			0							; gap length between sectors for format
+;				db			FORMATFILL					; fill byte for formatted sectors
+;				db			1							; head settle time in milliseconds
+;				db			1							; motor startup time in eighths of a second
 ;
 ;-----	text strings
 ;
