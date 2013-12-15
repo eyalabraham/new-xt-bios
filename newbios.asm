@@ -5,10 +5,10 @@
 ;
 ;  BIOS replacement for PC/XT clone
 ;  Hardware includes USART to replace CRT and keyboard
-;  Initial systems with no display card, not parallel port, no RS232
-;  IDE-8255 HDD interface, no display adapter
+;  Initialize system with no display card, no parallel port, no RS232,
+;  with IDE-8255 HDD interface, no display adapter
 ;  BIOS with required POST and services to boot MS-DOS, MINIX, ELKS
-;  With no boot code, BIOS will provide basic monitor functions.
+;  BIOS provides basic monitor functions
 ;
 ; resources:
 ;	general resource: http://stanislavs.org/helppc/
@@ -995,13 +995,32 @@ INT0D:			push		ax
 ;     - setting the data in the BIOS Data Area  ;
 ;       at location 40:50 does not take         ;
 ;       immediate effect and is not recommended ;
+;   AH = 03h                                    ;
+;       BH = Display page number                ;
+;       Read Cursor Position and Size           ;
+;   Returns:                                    ;
+;       CH Cursor start line                    ;
+;       CL Cursor end line                      ;
+;       DH Row                                  ;
+;       DL Column                               ;
 ;   AH = 05h                                    ;
-;       AL = new page number                    ;
-;	AH = 09h write attribute/char at cursor     ;
-;	AH = 0ah write char at curson position      ;
-;	AH = 0Eh write TTY to active page			;
-;		AL character ASCII						;
-;		(all other input ignored)               ;
+;       AL = page number                        ;
+;            Set Active Display Page to AL      ;
+;   AH = 08h                                    ;
+;       BH Display page num. (text modes only)  ;
+;   Returns:                                    ;
+;       AH Attribute of character (text mode)   ;
+;       AL ASCII value of character             ;
+;       Registers destroyed: AX, SP, BP, SI, DI ;
+;       Notes:                                  ;
+;         In graphics mode, the display page    ;
+;         need not be specified.                ;
+;         Current character and attribute can   ;
+;         be obtained for any page, even if     ;
+;         the page is not the currently active  ;
+;         In graphics mode, the service returns ;
+;         00h in AL if it does not recognize    ;
+;         the character pattern.
 ;   AH = 09                                     ;
 ;       AL = ASCII character to write           ;
 ;       BH = display page                       ;
@@ -1009,6 +1028,10 @@ INT0D:			push		ax
 ;       CX = count to write (CX >= 1)           ;
 ;   returns nothing                             ;
 ;    - does not move the cursor                 ;
+;   AH = 0ah write char at curson position      ;
+;   AH = 0Eh write TTY to active page           ;
+;       AL character ASCII                      ;
+;       (all other input ignored)               ;
 ;   AH = 0Fh                                    ;
 ;       AH = number of screen columns           ;
 ;       AL = mode currently set                 ;
@@ -1046,7 +1069,7 @@ INT10JUMPTBL:	dw			(INT10F00+ROMOFF)			; * 00h		- set CRT mode
 				dw			(INT10F05+ROMOFF)           ; * 05h		- select active display
 				dw			(INT10F06+ROMOFF)			; *	06h		- scroll active page up
 				dw			(INT10IGNORE+ROMOFF)		;	07h		- scroll active page down
-				dw			(INT10IGNORE+ROMOFF)		;   08h		- read attribute/character at cursor
+				dw			(INT10F08+ROMOFF)           ; * 08h		- read attribute/character at cursor
 				dw			(INT10F09+ROMOFF)			; *	09h		- write attribute/character at cursor
 				dw			(INT10F0A+ROMOFF)			; *	0ah		- write character at curson position
 				dw			(INT10F0B+ROMOFF)			; .	0bh		- set color palette
@@ -1130,7 +1153,8 @@ F02NOMOVE:      pop         ds
 ;-----------------------------------------------;
 ;
 INT10F03:		push        ds
-                xor			cx,cx                       ; ignore scan line info
+                mov         ch,11                       ; return default cursor size in scan-line for monochrome
+                mov         cl,12
                 mov         dx,BIOSDATASEG              ; establish pointer to BIOS data area
                 mov         ds,dx
 				mov			dx,[ds:bdCURSPOS]           ; get cursor position
@@ -1185,6 +1209,16 @@ F06SCROLLLOOP:  mcrPRINT    VT100IND                    ; scroll window
 ;
 F06EXIT:        pop         cx
                 pop         ax
+                ret
+;
+;-----------------------------------------------;
+; INT10, 08h - read ASCII and attr. at cursor   ;
+;-----------------------------------------------;
+;@@- assuming this is typically called to sample
+;    video mode and ability to read characters?
+;
+INT10F08:       mov         al,04h                      ; return 'normal' attribute
+                mov         ah,20h                      ; return ASCII for space
                 ret
 ;
 ;-----------------------------------------------;
@@ -1289,6 +1323,7 @@ INT11:			sti
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; establish segment of BIOS data structure
 				mov			ax,[ds:bdEQUIPMENT]			; get equipment info from ds:10h
+				or          ax,0001h                    ; hard-code force 'floppy exists' bit
 				pop			ds
 				iret
 ;
@@ -1640,6 +1675,12 @@ INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	*	- Reset disk system
 				dw			(INT13F18+ROMOFF)			;  	18h	*	- Set media type for format (BIOS date specific)
 				dw			(INT13IGNORE+ROMOFF)		;  	19h		- Park fixed disk heads (AT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;  	1ah		- Format ESDI drive unit (PS/2 50+)
+                dw          (INT13IGNORE+ROMOFF)        ;   1bh     - ESDI FIXED DISK - GET MANUFACTURING HEADER
+                dw          (INT13IGNORE+ROMOFF)        ;   1ch     - ESDI FIXED DISK - multi function
+                dw          (INT13IGNORE+ROMOFF)        ;   1dh     - Reserved
+                dw          (INT13IGNORE+ROMOFF)        ;   1eh     - Reserved
+                dw          (INT13IGNORE+ROMOFF)        ;   1fh     - Reserved
+                dw          (INT13F20+ROMOFF)           ;   20h     - ??? called by DOS 6.22
 ;
 INT13COUNT:		equ			($-INT13JUMPTBL)/2			; length of table for validation
 ;
@@ -1849,7 +1890,7 @@ F03EXIT:		pop			ds							; restore DS and exit
 ;
 INT13F04:       mov         ah,INT13NOERR               ; return with no error
                 clc                                     ; and successful completion
-                ret
+                ret                                     ; AL returned same as entered, sectors verified = sectors to verify
 ;
 ;-----------------------------------------------;
 ;		INT 13, function 05h - Format track     ;
@@ -1977,6 +2018,16 @@ F18VALIDDRV:	mov			bx,cx						; save CX
 F18NOTSUP:      mov			ah,INT13UNSUPMED			; signal 'unsupported track/media'
 				stc
 F18EXIT:		pop         bx
+                ret
+;
+;----------------------------------------------------;
+;       INT 13, function 20h - ???                   ;
+;  ** implemented for DOS 6.22 compatibility !!      ;
+;----------------------------------------------------;
+;@@- definitions: http://www.ctyme.com/intr/rb-0667.htm
+;
+INT13F20:       mov         ah,INT13BADCMD              ; 01h invalid request
+                stc                                     ; signal error
                 ret
 ;
 ;-----------------------------------------------;
@@ -2108,8 +2159,27 @@ INT16SHIFT:		mov			al,[ds:bdSHIFT]
 				jmp			INT16EXIT
 ;
 ;-----	write character into keyboard buffer
-; @@- do we need this function?
-INT16WRITE:		nop
+; @@- implemented to be able to use 'vim' editor
+;
+INT16WRITE:		push        di
+                push        ds
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; set DS to BIOS data structure segment
+                mov         ax,[ds:bdKEYBUFTAIL]        ; get buffer write pointer
+                mov         di,ax                       ; save it
+                inc         ax                          ; next position
+                cmp         ax,[ds:bdKEYBUFEND]         ; is this end of buffer?
+                jne         INT16WRNOTEND               ;  no, skip
+                mov         ax,[ds:bdKEYBUFSTART]       ;  yes, reset write pointer (circular buffer)
+INT16WRNOTEND:  cmp         ax,[ds:bdKEYBUFHEAD]        ; is write pointer same as read pointer?
+                jne         INT16WRNOOVR                ;  no, skip as there is no overrun
+                mov         al,01h                      ; signal buffer full
+                jmp         INT16WREXIT
+INT16WRNOOVR:   mov         [ds:di],cl                  ; store in buffer
+                mov         [ds:bdKEYBUFTAIL],ax        ; update write pointer
+                xor         al,al                       ; signal success
+INT16WREXIT:    pop         ds
+                pop         di
 				jmp			INT16EXIT
 ;
 ;----- INT 19 ----------------------------------;
@@ -2887,6 +2957,12 @@ CHS2LBA:		push        bx
 				push		es
 				push		bp
 				mov			bp,sp						; establish calculator stack
+;
+%ifdef         INT13DEBUG
+                mcrPRINT    CHSDBG
+                call        PRINTREGS
+%endif
+;
 				call		CHECKDRV					; check for valid drive ID, should be valid here
 				jc			CHS2LBAEXIT					; not valid (odd!) so exit with CY.f set
 ;
@@ -2952,7 +3028,11 @@ CHS2LBAERR:     mov         ax,0ffffh                   ; load 28-bit bogus LBA 
 ;
 ;-----	exit
 ;
-CHS2LBAEXIT:    mov			sp,bp						; restore SP
+CHS2LBAEXIT:
+%ifdef         INT13DEBUG
+                call        PRINTREGS
+%endif
+                mov			sp,bp						; restore SP
                 pop			bp
 				pop			es
 				pop			di
@@ -3416,14 +3496,14 @@ DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 DRV2:			db			80h							; drive ID -- fixed disk 0
 				db			3							; type = HDD, fixed disk (see INT 13, 15h)
 				db			0							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-				dw			611							; # cylinders -> HDD 20MB (0..611)
-				db			3							; # heads (0..3)
-				db			17							; # sectors/track (1..17)
-				dw          0                           ; Max LBAs high word
-				dw			41616 						; Max LBAs low word (0..41615)
+				dw			518							; # cylinders -> HDD 4GB (0..518)
+				db			127							; # heads (0..127)
+				db			63							; # sectors/track (1..63)
+				dw          003fh                       ; Max LBAs high word
+				dw			0dc80h 						; Max LBAs low word (0.. 4,185,215)
 				dw			6000						; LBA offset into IDE host drive
-DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
-                db          4                           ; ( 2) # of heads
+DRV2DBT:        dw          519                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
+                db          128                         ; ( 2) # of heads
                 db          0                           ; ( 3) reserved
                 db          0                           ; ( 4) reserved
                 dw          0                           ; ( 5) starting write precompensation cylinder number
@@ -3432,31 +3512,38 @@ DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@
                 dw          0                           ; ( 9) reserved
                 db          0                           ; (11) reserved
                 dw          0                           ; (12) cylinder number of landing zone
-                db          17                          ; (14) # sectors per track
+                db          63                          ; (14) # sectors per track
                 db          0                           ; (15) reserver
-;DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@- http://www.ctyme.com/intr/rb-6135.htm
+;
+;-----  simple DPT drive parameters format
+;
+;DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
 ;                db          4                           ; ( 2) # of heads
-;                dw          0                           ; ( 3) starting reduced write current cylinder
+;                db          0                           ; ( 3) reserved
+;                db          0                           ; ( 4) reserved
 ;                dw          0                           ; ( 5) starting write precompensation cylinder number
-;                db          0                           ; ( 7) maximum ECC burst length
+;                db          0                           ; ( 7) reserved
 ;                db          065h                        ; ( 8) control byte
-;                db          0                           ; ( 9) standard time out
-;                db          0                           ; (10) formatting time out
-;                db          0                           ; (11) drive check time out
+;                dw          0                           ; ( 9) reserved
+;                db          0                           ; (11) reserved
 ;                dw          0                           ; (12) cylinder number of landing zone
 ;                db          17                          ; (14) # sectors per track
 ;                db          0                           ; (15) reserver
-;DRV2DBT:		db			0							; specify byte 1; step-rate time, head unload time
-;				db			0							; specify byte 2; head load time, DMA mode
-;				db			1							; timer ticks to wait before disk motor shutoff
-;				db			2							; bytes per sector code: 0 = 128, 1 = 256, 2 = 512, 3 = 1024
-;				db			17							; sectors per track (last sector number)
-;				db			0							; inter-block gap length/gap between sectors
-;				db			0ffh						; data length, if sector length not specified
-;				db			0							; gap length between sectors for format
-;				db			FORMATFILL					; fill byte for formatted sectors
-;				db			1							; head settle time in milliseconds
-;				db			1							; motor startup time in eighths of a second
+;
+;-----  EDPT format for drive parameters
+;
+;DRV2DBT:        dw          612                         ; ( 0) # logical cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
+;                db          4                           ; ( 2) # logical heads
+;                db          0a0h                        ; ( 3) EDPT signiture
+;                db          17                          ; ( 4) # physical sectors per track
+;                dw          0ffffh                      ; ( 5) starting write precompensation (obsolete)
+;                db          0                           ; ( 7) reserved
+;                db          65h                         ; ( 8) control byte 08h?
+;                dw          612                         ; ( 9) # physical cylinders
+;                db          4                           ; (11) # physical heads
+;                dw          0                           ; (12) landing zone (obsolete)
+;                db          17                          ; (14) # logical sectors per track
+;                db          07h                         ; (15) checksum (two's complement of 8-bit sum)
 ;
 ;-----	text strings
 ;
@@ -3540,6 +3627,7 @@ VT100IND:       db          ESC, "D", 0                 ; move/scroll window up 
 INT10DBG:		db			CR, LF, "=== int-10 unhandled function 0x", 0
 INT13DBG:		db			CR, LF, "=== int-13 unhandled function 0x", 0
 INT16DBG:		db			CR, LF, "=== int-16 unhandled function 0x", 0
+CHSDBG:         db          CR, LF, "=== CHS2LBA",0
 ;
 ;-----	7-seg bit table   dp gfedcba
 ;                           \|||||||
@@ -3711,7 +3799,7 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)	; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "11/27/13"          		; Release date MM/DD/YY
+                db          "12/07/13"          		; Release date MM/DD/YY
 ;
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                		; Computer type (XT)
