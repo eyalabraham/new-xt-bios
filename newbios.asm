@@ -1658,8 +1658,8 @@ INT13JUMPTBL:	dw			(INT13F00+ROMOFF)			;   00h	*	- Reset disk system
 				dw			(INT13IGNORE+ROMOFF)		;	07h		- Format the drive starting at track (XT & portable)
 				dw			(INT13F08+ROMOFF)			;	08h	*	- Get current drive parameters (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	09h     - Initialize fixed disk base tables (XT & newer)
-				dw			(INT13F0A+ROMOFF)			;	0ah	.	- Read long sector (XT & newer)
-				dw			(INT13F0B+ROMOFF)			;	0bh	.	- Write long sector (XT & newer)
+				dw			(INT13IGNORE+ROMOFF)		;	0ah		- Read long sector (XT & newer)
+				dw			(INT13IGNORE+ROMOFF)		;	0bh		- Write long sector (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	0ch		- Seek to cylinder (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;	0dh		- Alternate disk reset (XT & newer)
 				dw			(INT13IGNORE+ROMOFF)		;  	0eh		- Read sector buffer (XT & portable only)
@@ -1745,30 +1745,18 @@ F01EXIT:		pop			ds
 				ret
 ;
 ;-----------------------------------------------;
-;		INT 13, function 02h / 0Ah - read disk	;
+;		INT 13, function 02h - read disk	    ;
 ;-----------------------------------------------;
 ;
-INT13F02:
-INT13F0A:		push		ds
+INT13F02:		push		ds
 ;
-;-----	check validity of drive ID
-;
-				push		es
-				push		di							; save ES, DI becasue we only want to know if drive ID is OK
-				call		CHECKDRV					; check if valid drive
-				pop			di
-				pop			es
-				jnc			F02VALIDDRV					; drive is valid, continue
-				mov			ah,INT13BADCMD				; signal error 'bad parameter'
-				stc
-				jmp			F02EXIT
+                push        ax
+                mov         ax,BIOSDATASEG              ; establish pointer to BIOS data
+                mov         ds,ax
+                pop         ax
 ;
 ;-----	convert CHS to LBA
 ;
-F02VALIDDRV:	push		ax
-				mov			ax,BIOSDATASEG				; establish pointer to BIOS data
-				mov			ds,ax
-				pop			ax
 				mov			byte [ds:bdIDEFEATUREERR],0	; setup IDE command block, features not needed so '0'
 				mov			[ds:bdIDESECTORS],al		; sector count to read
 				push		ax
@@ -1815,30 +1803,18 @@ F02EXIT:		pop			ds							; restore DS and exit
 				ret
 ;
 ;-----------------------------------------------;
-;		INT 13, function 03h / 0Bh - write disk	;
+;		INT 13, function 03h - write disk	    ;
 ;-----------------------------------------------;
 ;
-INT13F03:
-INT13F0B:		push		ds
+INT13F03:		push		ds
 ;
-;-----	check validity of drive ID
-;
-				push		es
-				push		di							; save ES, DI becasue we only want to know if drive ID is OK
-				call		CHECKDRV					; check if valid drive
-				pop			di
-				pop			es
-				jnc			F03VALIDDRV					; drive is valid continue
-				mov			ah,INT13BADCMD				; signal error 'bad parameter'
-				stc
-				jmp			F03EXIT
+                push        ax
+                mov         ax,BIOSDATASEG              ; establish pointer to BIOS data
+                mov         ds,ax
+                pop         ax
 ;
 ;-----	convert CHS to LBA
 ;
-F03VALIDDRV:	push		ax
-				mov			ax,BIOSDATASEG				; establish pointer to BIOS data
-				mov			ds,ax
-				pop			ax
 				mov			byte [ds:bdIDEFEATUREERR],0	; setup IDE command block, features not needed so '0'
 				mov			[ds:bdIDESECTORS],al		; sector count to read
 				push		ax
@@ -2116,6 +2092,8 @@ INT16:			sti										; enable other interrupts
 				call		PRINTHEXB
 				xchg		ah,al
 				mcrPRINT    CRLF
+;
+                call        PRINTREGS                   ; print register contents
 ;
 INT16EXIT:		pop			bx
 				pop			ds
@@ -2963,8 +2941,8 @@ CHS2LBA:		push        bx
                 call        PRINTREGS
 %endif
 ;
-				call		CHECKDRV					; check for valid drive ID, should be valid here
-				jc			CHS2LBAEXIT					; not valid (odd!) so exit with CY.f set
+				call		CHECKDRV					; check for valid drive ID, and get [ES:DI] pointer to drive info
+				jc			CHS2LBAEXIT					;  not valid, exit with CY.f set
 ;
 ;-----	store formula parameters on stack
 ;
