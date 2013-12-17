@@ -5,6 +5,7 @@
 ;
 ;  BIOS replacement for PC/XT clone
 ;  memory segment and data structures.
+;  BIOS data table from http://www.bioscentral.com/misc/bda.htm
 ;
 ;********************************************************************
 ;
@@ -24,44 +25,47 @@
 ;	0000:0000	+--- vectors ---+	00000h			0000:0000	+--- vectors ---+	00000h
 ;				|	  |			|								|	  |			|
 ;				|	 \ /		|								|	 \ /		|
-;				|				|								|				|
-;				|				|								|				|
-;				|	 / \		|								|	 / \		|
-;				|	  |			|								|	  |			|
-;	0030:0100	|    stack      |					0030:0100	|    stack      |
-;	0040:0000	+-- BIOS data --+	00400h   		0040:0000	+-- BIOS data --+	00400h
-;				|	  |			|								|	  |			|
-;				|	 \ /		|								|	 \ /		|
-;				|				|								|				|
-;	0050:0000	+-- Boot data --+   00500h						|				|
-;				|	  |			|					0060:0000	+--- MONITOR ---+   00600h
-;				|	 \ /		|								|	  data		|
-;				|				|								|	  |			|
-;				|				|								|	 \ /		|
-;	0070:0000	+--- DOS seg ---+   00700h			0070:0000	+--- XMODEM  ---+   00700h
-;				|	  |			|								|	 & disk		|
-;				|	 \ /		|								|	staging		|
-;				|				|								|	  |			|
-;				|				|								|	 \ /		|
-;				|				|								|				|
-;				|				|					00b0:0000	+---  free   ---+   00b00h
-;				|				|								|	  |			|
-;				|				|								|	 \ /		|
-;				|				|								|				|
-;	0000:7c00	+--- IPL seg ---+	07c00h						|				|
-;				|   512 bytes	|								|				|
-;				|	  |			|								|				|
-;				|	 \ /		|								|				|
-;				|				|								|				|
-;				|				|								|				|
-;	f000:8000	+-- ROM BIOS ---+	f8000h			f000:8000	+-- ROM BIOS ---+	f8000h
-;				|	  |			|								|	  |			|
-;				|	 \ /		|								|	 \ /		|
-;				|				|								|				|
+;               |               |                               +---------------+   00080h
+;               |               |                               |               |
+;               |    / \        |                               |    / \        |
+;               |     |         |                               |     |         |
+;   0030:0100   |  POST stack   |                   0030:0100   |    stack      |
+;   0040:0000   +-- BIOS data --+   00400h          0040:0000   +-- BIOS data --+   00400h
+;               |     |         |                               |     |         |
+;               |    \ /        |                               |    \ /        |
+;               |               |                   0040:0100   +--- XMODEM  ---+   00500h
+;   0050:0000   +---  free  ----+   00500h                      |    buffer     |
+;               |     |         |                               |     |         |
+;               |    \ /        |                               |    \ /        |
+;               |               |                   0060:0000   +--- XMODEM  ---+   00600h
+;               |               |                               |     data      |
+;               |               |                   0070:0000   +--- XMODEM  ---+   00700h
+;               |               |                               |    & disk     |
+;               |               |                               |   staging     |
+;               |               |                               |     |         |
+;               |               |                               |    \ /        |
+;               |               |                               |               |
+;               |               |                   00b0:0000   +---  free   ---+   00b00h
+;               |               |                               |     |         |
+;               |               |                               |    \ /        |
+;               |               |                               |               |
+;   0000:7c00   +--- IPL seg ---+   07c00h                      |               |
+;               |   512 bytes   |                               |               |
+;               |     |         |                               |               |
+;               |    \ /        |                               |               |
+;               |               |                               |               |
+;               |               |                               |               |
+;   9000:ffff   +--- RAM top ---+   09ffffh                     +--- RAM top ---+   09ffffh
+;               |               |                               |               |
+;               |               |                               |               |
+;               |               |                               |               |
+;   f000:8000   +-- ROM BIOS ---+   f8000h          f000:8000   +-- ROM BIOS ---+   f8000h
+;               |     |         |                               |     |         |
+;               |    \ /        |                               |    \ /        |
 ;				+---------------+	fffffh						+---------------+	fffffh
 ;
 ;--------------------------------------
-; BIOS control data
+; BIOS data area (BDA)
 ;--------------------------------------
 ;
 BIOSDATASEG:	equ         0040h
@@ -73,22 +77,6 @@ BIOSDATAOFF:	equ         0000h
 ;
 STACKSEG:		equ			0030h				; default stack segment
 STACKTOP:		equ			0100h				; default top-of-stack
-;
-;--------------------------------------
-; Boot disk directory from IPL
-;--------------------------------------
-; DOS system will use the 512 bytes of this segment
-;
-DOSDATASEG:     equ         0050h
-DOSDATAOFF:     equ         0000h
-;
-;--------------------------------------
-; "Kernel" of PC-DOS or sys
-; @@- may not be needed
-;--------------------------------------
-;
-DOSSEG:         equ         0070h
-DOSOFF:         equ         0000h
 ;
 ;--------------------------------------
 ; ROM monitor RAM area
@@ -135,6 +123,14 @@ MAX_MEMORY:		equ			704					; maximum kilobytes of memory allowed
 DRIVEPARAMVEC:	equ			078h				; drive parameter table vector
 ;
 ;--------------------------------------
+; fixed disk parameter vectors
+; @@- http://www.ctyme.com/intr/rb-6135.htm
+;--------------------------------------
+;
+VECFIXDDSK0:    equ         104h                ; segment:offset for vector 41h
+VECFIXDDSK1:    equ         118h                ; segment:offset for vector 46h
+;
+;--------------------------------------
 ; BIOS control and status data structure
 ;--------------------------------------
 ;
@@ -171,7 +167,7 @@ bdKEYBUF:		resw        16                  ; 40:1E - Keyboard Buffer (Scan,Value
                 resb        1                   ; 40:3E - Drive Calibration bits 0 - 3
                 resb        1                   ; 40:3F - Drive Motor(s) on 0-3,7=write
                 resb        1                   ; 40:40 - Ticks (18/sec) til motor off
-bdDRIVESTATUS:	resb        1                   ; 40:41 + Floppy return code stat byte
+bdDRIVESTATUS1:	resb        1                   ; 40:41 + Floppy return code stat byte
                                                 ;       |
                                                 ;       - 001h   1 = bad ic 765 command req.
                                                 ;       - 002h   2 = address mark not found
@@ -195,7 +191,7 @@ bdIDECMDSTATUS:	resb		1					; 		IDECMDSTATUS:  - commad (wr) or regular status (
 ; Video display area
 ; ( defined but will not be used)
 ;
-                resb        1                   ; 40:49 + Current CRT mode  (software)
+bdVIDEOMODE:    resb        1                   ; 40:49 + Current CRT mode  (software)
                                                 ;       |
                                                 ;       - 0 = 40 x 25 text (no color)
                                                 ;       - 1 = 40 x 25 text (16 color)
@@ -208,9 +204,9 @@ bdIDECMDSTATUS:	resb		1					; 		IDECMDSTATUS:  - commad (wr) or regular status (
                 resw        1                   ; 40:4A - Columns on CRT screen
                 resw        1                   ; 40:4C - Bytes in the regen region
                 resw        1                   ; 40:4E - Byte offset in regen region
-                resw        8                   ; 40:50 - Cursor pos for up to 8 pages
+bdCURSPOS:      resw        8                   ; 40:50 - Cursor pos for up to 8 pages
                 resw        1                   ; 40:60 - Current cursor mode setting
-                resb        1                   ; 40:62 - Current page on display
+bdVIDEOPAGE:    resb        1                   ; 40:62 - Current page on display
                 resw        1                   ; 40:63 - Base addres (B000h or B800h)
                 resb        1                   ; 40:65 - ic 6845 mode reg. (hardware)
                 resb        1                   ; 40:66 - Current CGA palette
@@ -233,7 +229,10 @@ bdBOOTFLAG:		resw        1                   ; 40:72 - Warm boot if 1234h value
 ;
 ; Hard disk scratchpad
 ;
-                resw        2                   ; 40:74 - Hard disk scratchpad
+bdDRIVESTATUS2: resb        1                   ; 40:74 - Hard disk operation status
+bdFIXEDDRVCNT:  resb        1                   ; 40:75 - fixed drive count
+                resb        1                   ; 40:76 - fixed disk control byte
+                resb        1                   ; 40:77 - fixed disk IO port offset
 ;
 ; Time-out areas COM/LPT
 ;
@@ -245,6 +244,33 @@ bdBOOTFLAG:		resw        1                   ; 40:72 - Warm boot if 1234h value
 bdKEYBUFSTART:  resw        1                   ; 40:80 - Contains 1Eh, buffer start
 bdKEYBUFEND:    resw        1                   ; 40:82 - Contains 3Eh, buffer end
 ;
+                resb        1                   ; 40:84 - Number of video rows (minus 1)
+                resb        2                   ; 40:85 - Number of scan lines per character
+                resb        1                   ; 40:87 - Video display adapter options
+                resb        1                   ; 40:88 - Video display adapter switches
+                resb        1                   ; 40:89 - VGA video flags 1
+                resb        1                   ; 40:8A - VGA video flags 2
+                resb        1                   ; 40:8B - Floppy disk configuration data
+                resb        1                   ; 40:8C - Hard disk drive controller status
+                resb        1                   ; 40:8D - Hard disk drive error
+                resb        1                   ; 40:8E - Hard disk drive task complete flag
+                resb        1                   ; 40:8F - Floppy disk drive information
+                resb        1                   ; 40:90 - Diskette 0 media state
+                resb        1                   ; 40:91 - Diskette 1 media state
+                resb        1                   ; 40:92 - Diskette 0 operational starting state
+                resb        1                   ; 40:93 - Diskette 1 operational starting status
+                resb        1                   ; 40:94 - Diskette 0 current cylinder
+                resb        1                   ; 40:95 - Diskette 1 current cylinder
+                resb        1                   ; 40:96 - Keyboard status flags 3
+                resb        1                   ; 40:97 - Keyboard status flags 4
+                resb        4                   ; 40:98 - Segment:Offset address of user wait flag pointer
+                resb        4                   ; 40:9C - User wait count
+                resb        1                   ; 40:A0 - User wait flag
+                resb        7                   ; 40:A1 - Local area network (LAN) bytes
+                resb        4                   ; 40:A8 - Segment:Offset address of video parameter control block
+                resb        68                  ; 40:AC - Reserved
+                resb        16                  ; 40:F0 - Intra-applications communications area
+;
 ;--------------------------------------
 ; XMODEM data structure,
 ; only valid in monitor mode
@@ -252,8 +278,8 @@ bdKEYBUFEND:    resw        1                   ; 40:82 - Contains 3Eh, buffer e
 ;
 ; temporary buffer for XMODEM
 ;
-bdXMODEMBUFF:	resb		XMODEMBUFFER		; 40:84 - temporary buffer for XMODEM
-bdLAST:			resb		1					; 40:109 - address of last byte in BIOS data area
+bdXMODEMBUFF:	resb		XMODEMBUFFER		; 40:100 - temporary buffer for XMODEM
+bdLAST:			resb		1					; 40:185 - address of last byte in BIOS data area
 ;
 endstruc
 ;
@@ -284,13 +310,39 @@ struc           DRVDATA
 ;
 ddDRIVEID:		resb		1					; drive ID
 ddDASDTYPE:		resb		1					; type of drive (see INT13, 15)
-ddTYPE:			resb		1					; CMOS drive type: 0 = HDD, 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.3/1.44Mb
+ddCMOSTYPE:		resb		1					; CMOS drive type: 0 = HDD, 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.3/1.44Mb
 ddDRVGEOCYL:	resw		1					; cylinders
 ddDRVGEOHEAD:	resb		1					; heads
 ddDRVGEOSEC:	resb		1					; sectors per track
-ddDRVMAXLBA:	resw		1					; Max LBAs
+ddDRVMAXLBAHI:	resw		1					; Max LBAs high word
+ddDRVMAXLBALO:  resw        1                   ; Max LBAs loe word
 ddDRVHOSTOFF:	resw		1					; LBA offset into IDE host drive
 ddDBT:			resb		11					; Disk Base Table (DBT)
+;
+endstruc
+;
+;--------------------------------------
+; INDENTIFY command returned data structure
+; page 103
+;--------------------------------------
+;
+struc           IDEIDENTIFYSTRUCT
+;
+                resw        1
+iiCYL:          resw        1                   ; logical cyliders
+                resw        1
+iiHEADS:        resw        1                   ; logical heads
+                resw        2
+iiSEC:          resw        1                   ; sectors per track
+                resw        3
+iiSERIANNUM:    resb        20                  ; serial number 20 ASCII characters
+                resw        3
+iiFIRMWARE:     resb        8                   ; firmware level 8 ASCII characters
+iiMODEL:        resb        40                  ; model number 40 ASCII characters
+                resw        13
+iiLBA:          resw        2                   ; total number of LBAs
+                resw        193
+iiCHECKSUM:     resw        1                   ; block checksum
 ;
 endstruc
 ;

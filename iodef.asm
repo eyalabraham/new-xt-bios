@@ -22,6 +22,8 @@ CR:          	equ         0dh							; carriage return
 TAB:			equ			09h							; horizontal tab
 BS:				equ			08h							; back space
 SPACE:			equ			20h							; space
+ESC:            equ         1Bh                         ; escape character
+FORMATFILL:     equ         0f6h                        ; formatted sector fill byte
 ;
 ;======================================
 ; XMODEM equates
@@ -272,7 +274,7 @@ PPIPBINIT:		equ			10110001b			; PPI Port B initialization
 ;						| | | | | | | |
 ;						| | | | | | | +- SW1: ROM Monitor  [on ], SW5: Display-0 [on ]
 ;						| | | | | | +--- SW2: Coprocessor  [off], SW6: Display-1 [on ]
-;						| | | | | +----- SW3: RAM-0        [on ], SW7: Drive-0   [off]
+;						| | | | | +----- SW3: RAM-0        [on ], SW7: Drive-0   [on ]
 ;						| | | | +------- SW4: RAM-1        [on ], SW8: Drive-1   [off]
 ;						| | | +--------- spare
 ;						| | +----------- timer-2 out
@@ -465,6 +467,9 @@ BAUDDIVHI:		equ			00h					; with 4.9152MHz crustal
 ;         http://www.angelfire.com/de2/zel/
 ;--------------------------------------
 ;
+FLOPPYCNT:      equ         2                   ; system floppy drive count. must match DIP switches!!
+FIXEDCNT:       equ         1                   ; system fixed disk count
+;
 IDETOV:			equ			55					; IDE drive time out value in BIOS ticks (approx. 1sec)
 ;
 ;-----	IDE PPI IO ports
@@ -589,31 +594,6 @@ IDEDATAWR:		equ			10000000b			; PC output, PA and PB output (IDE write)
 ;							||+--------	b5.. mode-0
 ;							|+--------- b6.. mode-1
 ;							+----------	b7.. mode set '1'
-;
-;--------------------------------------
-; INDENTIFY command returned data structure
-; page 103
-;--------------------------------------
-;
-struc           IDEIDENTIFYSTRUCT
-;
-				resw		1
-iiCYL:			resw		1					; logical cyliders
-				resw		1
-iiHEADS:		resw		1					; logical heads
-				resw		2
-iiSEC:			resw		1					; sectors per track
-				resw		3
-iiSERIANNUM:	resb		20					; serial number 20 ASCII characters
-				resw		3
-iiFIRMWARE:		resb		8					; firmware level 8 ASCII characters
-iiMODEL:		resb		40					; model number 40 ASCII characters
-				resw		13
-iiLBA:			resw		2					; total number of LBAs
-				resw		193
-iiCHECKSUM:		resw		1					; block checksum
-;
-endstruc
 ;
 ;--------------------------------------
 ; INT 13 status codes
