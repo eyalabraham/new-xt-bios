@@ -37,25 +37,25 @@
 ;   0050:0000   +---  free  ----+   00500h                      |    buffer     |
 ;               |     |         |                               |     |         |
 ;               |    \ /        |                               |    \ /        |
-;               |               |                   0060:0000   +--- XMODEM  ---+   00600h
+;               |               |                   0060:0000   +--- mon88 -----+   00600h
 ;               |               |                               |     data      |
 ;               |               |                   0070:0000   +--- XMODEM  ---+   00700h
 ;               |               |                               |    & disk     |
 ;               |               |                               |   staging     |
 ;               |               |                               |     |         |
 ;               |               |                               |    \ /        |
-;               |               |                               |               |
-;               |               |                   00b0:0000   +---  free   ---+   00b00h
+;               |               |                   0070:ffff   |               |   106ffh
+;               |               |                   1070:0000   +---  free   ---+   10700h
 ;               |               |                               |     |         |
 ;               |               |                               |    \ /        |
 ;               |               |                               |               |
 ;   0000:7c00   +--- IPL seg ---+   07c00h                      |               |
 ;               |   512 bytes   |                               |               |
-;               |     |         |                               |               |
+;               |     |         |                               |   (512K)      |
 ;               |    \ /        |                               |               |
 ;               |               |                               |               |
 ;               |               |                               |               |
-;   9000:ffff   +--- RAM top ---+   09ffffh                     +--- RAM top ---+   09ffffh
+;   9000:ffff   +--- RAM top ---+   09ffffh         9000:ffff   +--- RAM top ---+   9ffffh
 ;               |               |                               |               |
 ;               |               |                               |               |
 ;               |               |                               |               |
@@ -121,6 +121,7 @@ RELDATE:		equ         0fff5h      		; BIOS release date stamp
 CHECKSUM:		equ         0fffeh      		; BIOS checksum
 MAX_MEMORY:		equ			704					; maximum kilobytes of memory allowed
 DRIVEPARAMVEC:	equ			078h				; drive parameter table vector
+SIGNITURE:      equ         55aah               ; mon88 'go' command code signiture
 ;
 ;--------------------------------------
 ; fixed disk parameter vectors

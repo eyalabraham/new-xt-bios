@@ -7,29 +7,30 @@
 ;
 ;********************************************************************
 ;
-;---------------------------------------------------;
-; monitor mode command:							   	;
-; ipl .......................... attempt an IPL		;
-; cold ......................... cold start			;
-; warm ......................... warm start			;
-; memwr <seg> <off> ............ download to mem	;
-; drvwr <lbaH> <lbaL> [<sec>]... download to disk	;
-; memrd <seg> <off> <cnt> ...... upload from mem	;
-; drvrd <lbaH> <lbaL> <cnt> .... upload from disk	;
-; go <seg> <off>' .............. run code			;
-; iord <port>' ................. input from port	;
-; iowr <port> <byte>' .......... output to port		;
-; memdump <seg> <off>' ......... read and disp mem	;
-; drvdump <lbaH> <lbaL>' ....... display sector		;
-; help' ........................ print help text	;
-;												   	;
-; numeric parameters can be:					   	;
-;	decimal 0 - 65535							   	;
-;	hex     0000h - ffffh						   	;
-;	binary  00000000b - 11111111b				   	;
-;---------------------------------------------------;
+;----------------------------------------------------;
+; monitor mode command:							   	 ;
+; ipl ............................. attempt an IPL	 ;
+; cold ............................ cold start		 ;
+; warm ............................ warm start		 ;
+; memwr <seg> <off> ............... download to mem	 ;
+; drvwr <lbaH> <lbaL> [<sec>]...... download to disk ;
+; memrd <seg> <off> <cnt> ......... upload from mem	 ;
+; drvrd <lbaH> <lbaL> <cnt> ....... upload from disk ;
+; go <seg> <off>' ................. run code		 ;
+; iord <port>' .................... input from port	 ;
+; iowr <port> <byte>' ............. output to port	 ;
+; memdump <seg> <off>' ............ display mem	     ;
+; drvdump <lbaH> <lbaL>' .......... display sector	 ;
+; drvcp <sH> <sL> <dH> <dL> <sec> . copy sectors     ;
+; help' ........................... print help       ;
+;												   	 ;
+; numeric parameters can be:					   	 ;
+;	decimal 0 - 65535							   	 ;
+;	hex     0000h - ffffh						   	 ;
+;	binary  00000000b - 11111111b				   	 ;
+;----------------------------------------------------;
 ;
-;-----	CHECK POINT 9 and entery to monitor mode
+;-----	CHECK POINT 9 and entry point to monitor mode
 ;
 MONITOR:		mov			sp,STACKTOP					; reset stack pointer
 				mov			ax,MONSEG					; establish monitor data segments
@@ -162,12 +163,12 @@ TOOMANYTOKENS:	mcrPRINT	MONTOKENERR					; too many parameters (tokens) error
 ;
 ;-----	try to call command extensions first
 ;
-;EXECCMD:		call		far [ds:si+mdMONEXTENSION]	; first call extensions
-;				jnc			PROMPTLOOP					; if CY.f=0 then extensions processed the command, we're done, go to prompts
+EXECCMD:		call		far [ds:si+mdMONEXTENSION]	; first call extensions
+				jnc			PROMPTLOOP					; if CY.f=0 then extensions processed the command, we're done, go to prompt
 ;
 ;-----	set up pointers to command line token and command table
 ;
-EXECCMD:		mov			di,(MONJUMPTBL+ROMOFF)
+                mov			di,(MONJUMPTBL+ROMOFF)
 				mov			ax,cs
 				mov			es,ax						; [ES:DI] is pointer to jump table strings
 				mov			si,MONOFF					; data offset pointer [DS:SI] to command buffer
@@ -199,9 +200,9 @@ CMDFOUND:		mov			ax,[es:di+8]				; get call address offset from jump table
 NEXTTOKEN:		add			di,10						; next token on jump table
 				loop		TOKENCMP					; loop for next command comparison
 ;
-;-----	not a reognized command
+;-----	not a reognized command or syntax error
 ;
-MONCMDERROR:	mcrPRINT	MONCMDERR					; print command not recognized
+MONCMDERROR:	mcrPRINT	MONCMDERR					; print command syntax error
 				jmp			PROMPTLOOP
 ;
 ;-----	monitor command jump table
@@ -221,7 +222,7 @@ MONJUMPTBL:		db			"ipl",0,0,0,0,0
 				db			"drvrd",0,0,0
 				dw			(MONNONE+ROMOFF)
 				db			"go",0,0,0,0,0,0
-				dw			(MONNONE+ROMOFF)
+				dw			(CODEEXEC+ROMOFF)
 				db			"iord",0,0,0,0
 				dw			(IORD+ROMOFF)
 				db			"iowr",0,0,0,0
@@ -230,6 +231,8 @@ MONJUMPTBL:		db			"ipl",0,0,0,0,0
 				dw			(MEMORYDUMP+ROMOFF)
 				db			"drvdump",0
 				dw			(DRVDUMP+ROMOFF)
+				db          "drvcp",0,0,0
+				dw          (DRVCP+ROMOFF)
 				db			"help",0,0,0,0
 				dw			(MONHELP+ROMOFF)
 ;
@@ -293,6 +296,7 @@ WARMSTART:		jmp			WARM						; jump to warm start
 ; exit:											;
 ;	CY.f=0 no error								;
 ;	CY.f=1 error								;
+;   all work registers are preserved            ;
 ;-----------------------------------------------;
 ;
 MEMORYWR:		push		ax
@@ -301,7 +305,6 @@ MEMORYWR:		push		ax
 				push		ds
 				push		bp							; save work registers
 				mov			bp,sp
-				sub			sp,8						; make room for 4 parameters to pass on call to XMODEMRX
 ;
 				mov			ax,MONSEG
 				mov			ds,ax						; establish pointer to monitor data
@@ -309,29 +312,29 @@ MEMORYWR:		push		ax
 ;-----	get segment and offset address tokens
 ;
 				mov			cx,2						; setup to get 2 word tokens in a loop
-GETSEGOFF:		mov			si,MONOFF
+.GetTokens:
+        		mov			si,MONOFF
 				mov			ax,cx
 				call		GETTOKEN					; get the token that holds the address starting with <lbaL>
-				jc			DRIVEWREXIT					; exit here if error
+				jc			.MemoryWriteExit			; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			DRIVEWREXIT					; if error, then exit
-				sub			bp,2
-				mov			[bp],ax						; save segment and offset address token
-				loop		GETSEGOFF
+				jc			.MemoryWriteExit			; if error, then exit
+				push        ax						    ; save segment and offset address token
+				loop		.GetTokens
 ;
-                sub         bp,2
-                mov         word [bp],XMEMWRATONCE      ; accumulate 512B before writing to memory
+                mov         ax,XMEMWRATONCE             ; accumulate 512B before writing to memory
+                push        ax
 ;
-				sub			bp,2
-				mov			word [bp],FUNCMEMWR			; flag the function to write to the HDD
-				add         bp,8                        ; reset BP
+				mov			ax,FUNCMEMWR			    ; flag the function to write to the HDD
+				push        ax
 ;
 				call		XMODEMRX
 ;
 ;-----	exit command function
 ;
-MEMORYWREXIT:	mov			sp,bp						; discard parameters from stack
+.MemoryWriteExit:
+                mov			sp,bp						; discard parameters from stack
 				pop			bp							; restore registers
 				pop			ds
 				pop			si
@@ -350,6 +353,7 @@ MEMORYWREXIT:	mov			sp,bp						; discard parameters from stack
 ; exit:											;
 ;	CY.f=0 no error								;
 ;	CY.f=1 error								;
+;   all work registers are preserved            ;
 ;-----------------------------------------------;
 ;
 DRIVEWR:		push		ax
@@ -358,7 +362,6 @@ DRIVEWR:		push		ax
 				push		ds
 				push		bp							; save work registers
 				mov			bp,sp
-				sub			sp,8						; make room for 4 parameters to pass on call to XMODEMRX
 ;
 				mov			ax,MONSEG
 				mov			ds,ax						; establish pointer to monitor data
@@ -366,16 +369,16 @@ DRIVEWR:		push		ax
 ;-----	get LBA address tokens
 ;
 				mov			cx,2						; setup to get 2 word tokens in a loop
-GETWRITELBA:	mov			si,MONOFF
+.GetTokens:
+            	mov			si,MONOFF
 				mov			ax,cx
 				call		GETTOKEN					; get the token that holds the address starting with <lbaL>
-				jc			DRIVEWREXIT					; exit here if error
+				jc			.DriveWriteExit    			; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			DRIVEWREXIT					; if error, then exit
-				sub			bp,2
-				mov			[bp],ax						; save LBA address token
-				loop		GETWRITELBA					; loop through LBA address tokens
+				jc			.DriveWriteExit				; if error, then exit
+				push        ax  						; save LBA address token
+				loop		.GetTokens					; loop through LBA address tokens
 ;
 ;-----  get optional sector count accumulation param
 ;
@@ -383,23 +386,23 @@ GETWRITELBA:	mov			si,MONOFF
                 mov         si,MONOFF
                 mov         ax,3                        ; third paramater
                 call        GETTOKEN                    ; check if optional paramater was provided
-                jc          NOCOUNTOPT                  ;  no parameter provided, go to use default
+                jc          .NoOptionalParameter        ;  no parameter provided, go to use default
                 add         si,ax                       ;  parameter provided, get it
                 call        ASCII2NUM                   ; convert it to a number
-                jc          DRIVEWREXIT                 ; abort if error
+                jc          .DriveWriteExit             ; abort if error
                 mov         cx,ax
-NOCOUNTOPT:     sub         bp,2
-                mov         word [bp],cx                ; store sector count
+.NoOptionalParameter:
+                push        cx                          ; store sector count
 ;
-				sub			bp,2
-				mov			word [bp],FUNCDRIVEWR		; flag the function to write to the HDD
-				add         bp,8                        ; reset BP
+				mov			ax,FUNCDRIVEWR		        ; flag the function to write to the HDD
+				push        ax
 ;
 				call		XMODEMRX
 ;
 ;-----	exit command function
 ;
-DRIVEWREXIT:	mov         sp,bp						; discard parameters from stack
+.DriveWriteExit:
+                mov         sp,bp						; discard parameters from stack
 				pop			bp							; restore registers
 				pop			ds
 				pop			si
@@ -447,10 +450,57 @@ DRIVERDEXIT:	ret
 ; exit:											;
 ;	CY.f=0 no error								;
 ;	CY.f=1 error								;
+;   all work registers are preserved            ;
 ;-----------------------------------------------;
 ;
-CODEEXEC:		nop
-CODEEXECEXIT:	ret
+CODEEXEC:		push        ax
+                push        cx
+                push        si
+                push        ds
+                push        bp
+                mov         bp,sp
+;
+                mov         ax,MONSEG
+                mov         ds,ax                       ; establish pointer to monitor data
+;
+;-----  get segment and offset for far call address.
+;
+                mov         cx,1                        ; setup for first token in a loop
+.GetTokens:
+                mov         si,MONOFF
+                mov         ax,cx
+                call        GETTOKEN                    ; get the token that holds the address
+                jc          .CodeExecExit               ; exit here if error
+                add         si,ax                       ; adjust token start pointer
+                call        ASCII2NUM                   ; convert the token into a number
+                jc          .CodeExecExit               ; if error, then exit
+                push        ax                          ; save segment then offset tokens on stack
+                inc         cx
+                cmp         cx,2
+                jbe         .GetTokens                  ; loop for 2 tokens
+;
+;-----  call code
+;
+                lds         si,[ss:bp-4]                ; check code signiture, [DS:SI] points to code block
+                cmp         word [ds:si],SIGNITURE      ; check signiture at offset 0
+                jne         .BadSigniture               ; exit if signiture is not valid
+                add         word [ss:bp-4],2            ; adjust jump address past signiture
+                push        bp                          ; must preserve BP!
+                call        far [ss:bp-4]               ; far call to user code
+                pop         bp
+                jmp         .CodeExecExit
+;
+.BadSigniture:  mcrPRINT    BADSIGNITURE                ; print error
+                clc                                     ; not a funcion problem
+;
+.CodeExecExit:
+            	mov         sp,bp                       ; discard parameters and restore stack frame
+                pop         bp
+                pop         ds
+                pop         si
+                pop         cx
+                pop         ax
+                ret
 ;
 ;-----------------------------------------------;
 ; read IO port '<port>' and display byte result	;
@@ -469,17 +519,18 @@ IORD:			push		ax
 				push		dx
 				push		si
 				push		ds							; save work registers
+;
 				mov			si,MONOFF
 				mov			ax,MONSEG
 				mov			ds,ax						; establish pointer to monitor data
 ;
 				mov			ax,1						; get second token which is the port address
 				call		GETTOKEN
-				jc			IORDEXIT					; exit here if error
+				jc			.IoPortReadExit    			; exit here if error
 				add			si,ax						; adjust token start pointer
 ;
 				call		ASCII2NUM					; convert the token into a number
-				jc			IORDEXIT					; if error, then exit
+				jc			.IoPortReadExit				; if error, then exit
 				mov			dx,ax
 				in			al,dx						; read IO port
 				mov			bx,ax						; save AX
@@ -492,7 +543,8 @@ IORD:			push		ax
 				mcrPRINT	CRLF						; print new line
 				clc										; no errors
 ;
-IORDEXIT:		pop			ds
+.IoPortReadExit:
+                pop			ds
 				pop			si
 				pop			dx
 				pop			bx
@@ -520,23 +572,24 @@ IOWR:			push		ax
 				mov			si,MONOFF
 				mov			ax,1						; get second token which is the port address
 				call		GETTOKEN
-				jc			IOWREXIT					; exit here if error
+				jc			.IoPortWriteExit			; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			IOWREXIT					; if error, then exit
+				jc			.IoPortWriteExit			; if error, then exit
 				mov			dx,ax						; save IO port address
 ;
 				mov			si,MONOFF
 				mov			ax,2						; get third token which is the data byte to write
 				call		GETTOKEN
-				jc			IOWREXIT					; exit here if error
+				jc			.IoPortWriteExit			; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			IOWREXIT					; if error, then exit
+				jc			.IoPortWriteExit			; if error, then exit
 ;
 				out			dx,al						; write to IO port
 ;
-IOWREXIT:		pop			ds
+.IoPortWriteExit:
+                pop			ds
 				pop			si
 				pop			dx
 				pop			ax
@@ -568,26 +621,27 @@ MEMORYDUMP:		push		ax
 				mov			si,MONOFF
 				mov			ax,1						; get second token which is the address segment
 				call		GETTOKEN
-				jc			MEMORYDUMPEXIT				; exit here if error
+				jc			.MemoryDumpExit				; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			MEMORYDUMPEXIT				; if error, then exit
+				jc			.MemoryDumpExit				; if error, then exit
 				mov			dx,ax						; save IO port address
 ;
 				mov			si,MONOFF
 				mov			ax,2						; get third token which is the address offset
 				call		GETTOKEN
-				jc			MEMORYDUMPEXIT				; exit here if error
+				jc			.MemoryDumpExit				; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			MEMORYDUMPEXIT				; if error, then exit
+				jc			.MemoryDumpExit				; if error, then exit
 ;
 				mov			di,ax						; setup pointer [ES:DI] for memory dump routine
 				mov			es,dx
 				mov			ax,16						; 16 paragraphs or 256B
 				call		MEMDUMP						; call memory dump display
 ;
-MEMORYDUMPEXIT:	pop			ds
+.MemoryDumpExit:
+                pop			ds
 				pop			es
 				pop			di
 				pop			si
@@ -617,22 +671,26 @@ DRVDUMP:		push		ax
 				push		si
 				push		di
 				push		es
-				push		ds							; save work registers
+				push		ds
+				push        bp							; save work registers
+				mov         bp,sp
+;
 				mov			ax,MONSEG
 				mov			ds,ax						; establish pointer to monitor data
 ;
 ;-----	get LBA address part tokens
 ;
 				mov			cx,2						; setup to get 2 word tokens in a loop
-GETLBATOKENS:	mov			si,MONOFF
+.GetTokens:
+                mov			si,MONOFF
 				mov			ax,cx
 				call		GETTOKEN					; get the token that holds the address starting with <lbaL>
-				jc			DRVDUMPEXIT					; exit here if error
+				jc			.DriveDumpExit				; exit here if error
 				add			si,ax						; adjust token start pointer
 				call		ASCII2NUM					; convert the token into a number
-				jc			DRVDUMPEXIT					; if error, then exit
+				jc			.DriveDumpExit				; if error, then exit
 				push		ax							; save LBA address token
-				loop		GETLBATOKENS				; loop through all four LBA address tokens
+				loop		.GetTokens    				; loop through all four LBA address tokens
 ;
 ;-----	setup IDE command block for read
 ;
@@ -653,27 +711,34 @@ GETLBATOKENS:	mov			si,MONOFF
 ;
 				mov			byte [ds:bdIDECMDSTATUS],IDEREADSEC	; read command
 				call		IDESENDCMD					; send command block to drive
-				jnc			DRVDUMPGETDATA
-				jmp			DRVRDERROR
+				jnc			.ReadSectorFromDrive
+				jmp			.DriveReadError
 ;
 ;-----	read a sector of data from the drive
 ;
-DRVDUMPGETDATA:	mov			bx,STAGESEG
+.ReadSectorFromDrive:
+                mov			bx,STAGESEG
 				mov			es,bx
 				mov			bx,STAGEOFF					; pointer to data block destination
 				mov			al,1						; one (1) sector
 				call		IDEREAD						; read data from drive
-				jnc			DRVSECTORPRINT				; no read errors go to print sector
+				jnc			.PrintSectorHexDump			; no read errors go to print sector
 ;
-DRVRDERROR:		mcrPRINT	DRVREADERROR				; print drive read error
+.DriveReadError:
+                mcrPRINT	DRVACCESSERROR				; print drive error
+                call        IDERESET                    ; reset the drive
 				clc										; not really a function problem
-				jmp			DRVDUMPEXIT
+				jmp			.DriveDumpExit
 ;
-DRVSECTORPRINT:	mov			di,bx						; [ES:DI] point to data block read from drive
+.PrintSectorHexDump:
+                mov			di,bx						; [ES:DI] point to data block read from drive
 				mov			ax,32						; 32 paragraphs (512 bytes)
 				call		MEMDUMP						; dump buffer contents to console
 ;
-DRVDUMPEXIT:	pop			ds
+.DriveDumpExit:
+                mov         sp,bp
+                pop         bp
+                pop			ds
 				pop			es
 				pop			di
 				pop			si
@@ -682,6 +747,180 @@ DRVDUMPEXIT:	pop			ds
 				pop			bx
 				pop			ax
 				ret
+;
+;-----------------------------------------------;
+; copy sector count from source LBA offset to   ;
+; destination LBA offset.                       ;
+; drvcp <sH> <sL> <dH> <dL> <sec>               ;
+;                                               ;
+; entry:                                        ;
+;   NA                                          ;
+; exit:                                         ;
+;   CY.f=0 no error                             ;
+;   all work registers are saved                ;
+;-----------------------------------------------;
+;
+DRVCP:          push        ax
+                push        bx
+                push        cx
+                push        dx
+                push        si
+                push        di
+                push        es
+                push        ds
+                push        bp                          ; save work registers
+                mov         bp,sp                       ; save stack frame
+;
+                mov         ax,MONSEG
+                mov         ds,ax                       ; establish pointer to monitor data
+;
+;-----  get LBA addresses and count
+;
+                mov         cx,5                        ; setup to get 5 word tokens in a loop
+.GetTokens:
+                mov         si,MONOFF
+                mov         ax,cx
+                call        GETTOKEN                    ; get the tokens that host LBA and count parameters
+                jc          .DrvCopyExit                ; exit here if error
+                add         si,ax                       ; adjust token start pointer
+                call        ASCII2NUM                   ; convert the token into a number
+                jc          .DrvCopyExit                ; if error, then exit
+                push        ax                          ; save token
+                loop        .GetTokens                  ; loop through all five parameters
+;
+;-----  limit check to prevent copy overlaps
+;       will not check drive limits, will rely on drive
+;       to send error on out-of-range LBA
+;
+                cmp         word [ss:bp-2],0            ; LBA count must be > 0
+                je          .RangeError
+;
+.CheckDestinationRange:
+                mov         ax,[ss:bp-4]                ; get dest. low word
+                mov         dx,[ss:bp-6]                ; get dest. high word
+                add         ax,[ss:bp-2]                ; add LBA count
+                adc         dx,0                        ; DX:AX is dest. end-LBA address
+;
+                cmp         dx,[ss:bp-10]               ; Dest+Cnt <= Source?
+                ja          .CheckSourceRange
+                jb          .CopyLbaRange
+                cmp         ax,[ss:bp-8]
+                jbe         .CopyLbaRange
+;
+.CheckSourceRange:
+                mov         ax,[ss:bp-8]                ; get source low word
+                mov         dx,[ss:bp-10]               ; get source high word
+                add         ax,[ss:bp-2]                ; add LBA count
+                adc         dx,0                        ; DX:AX is source end-LBA address
+;
+                cmp         dx,[ss:bp-6]                ; Source+Cnt <= Dest. ?
+                ja          .RangeError
+                jb          .CopyLbaRange
+                cmp         ax,[ss:bp-4]
+                jbe         .CopyLbaRange
+;
+.RangeError:
+                stc                                     ; fall through to range error, set CY.f and exit
+                jmp         .DrvCopyExit
+;
+;-----  copy LBA range from source to destination
+;
+.CopyLbaRange:
+                mov         cx,[ss:bp-2]                ; get LBA count to copy
+                cmp         cx,128
+                jbe         .DoCopy                     ; if less than 64K then continue to copy
+                mov         cx,128                      ; can only do 64K at a time
+;
+;-----  read sectors of data from the drive
+;
+.DoCopy:
+                mov         ax,BIOSDATASEG              ; establish pointer to BIOS data
+                mov         ds,ax
+                mov         byte [ds:bdIDEFEATUREERR],0 ; setup IDE command block, features not needed so '0'
+                mov         byte [ds:bdIDESECTORS],cl   ; sector count to read
+;
+                mov         ax,[ss:bp-10]               ; source high LBA bits
+                and         ah,IDEDEVSELECT             ; device #0
+                or          ah,IDELBASELECT             ; LBA addressing mode
+                mov         [ds:bdIDEDEVLBATOP],ah      ; device, addressing and high LBA nibble (b24..b27)
+                mov         [ds:bdIDELBAHI],al          ; high LBA byte (b16..b23)
+;
+                mov         ax,[ss:bp-8]                ; source lower LBA bits
+                mov         [ds:bdIDELBAMID],ah         ; mid LBA byte (b8..b15)
+                mov         [ds:bdIDELBALO],al          ; low LBA byte (b0..b7)
+;
+                mov         byte [ds:bdIDECMDSTATUS],IDEREADSEC ; read command
+                call        IDESENDCMD                  ; send command block to drive
+                jc          .DriveError
+;
+                mov         bx,STAGESEG
+                mov         es,bx
+                mov         bx,STAGEOFF                 ; pointer to data block destination
+                mov         al,cl                       ; sectors
+                call        IDEREAD                     ; read data from drive
+                jc          .DriveError                 ; if errors then exit
+;
+;-----  write sectors of data to the drive
+;
+                mov         ax,BIOSDATASEG              ; establish pointer to BIOS data
+                mov         ds,ax
+                mov         byte [ds:bdIDEFEATUREERR],0 ; setup IDE command block, features not needed so '0'
+                mov         byte [ds:bdIDESECTORS],cl   ; sector count to write
+;
+                mov         ax,[ss:bp-6]                ; dest high LBA bits
+                and         ah,IDEDEVSELECT             ; device #0
+                or          ah,IDELBASELECT             ; LBA addressing mode
+                mov         [ds:bdIDEDEVLBATOP],ah      ; device, addressing and high LBA nibble (b24..b27)
+                mov         [ds:bdIDELBAHI],al          ; high LBA byte (b16..b23)
+;
+                mov         ax,[ss:bp-4]                ; dest lower LBA bits
+                mov         [ds:bdIDELBAMID],ah         ; mid LBA byte (b8..b15)
+                mov         [ds:bdIDELBALO],al          ; low LBA byte (b0..b7)
+;
+                mov         byte [ds:bdIDECMDSTATUS],IDEWRITESEC ; write command
+                call        IDESENDCMD                  ; send command block to drive
+                jc          .DriveError
+;
+                mov         bx,STAGESEG
+                mov         es,bx
+                mov         bx,STAGEOFF                 ; pointer to data block destination
+                mov         al,cl                       ; sectors
+                call        IDEWRITE                    ; write data to drive
+                jc          .DriveError                 ; if errors then exit
+;
+                add         [ss:bp-8],cx
+                adc         word [ss:bp-10],0           ; advance source LBA index
+                add         [ss:bp-4],cx
+                adc         word [ss:bp-6],0            ; advance dest LBA index
+;
+                mcrPRINT    SECCOPY                     ; print "sectors left" message
+                mov         ax,[ss:bp-2]                ; then get sectors left to copy
+                sub         ax,cx                       ; adjust to show sectors left to copy
+                call        PRINTDEC                    ; and print
+;
+                sub         [ss:bp-2],cx                ; decrement number of sectors to copy
+                jnz         .CopyLbaRange               ; loop if more LBAs to copy
+                mcrPRINT    CRLF
+                clc
+                jmp         .DrvCopyExit                ; exit when done
+;
+.DriveError:
+                mcrPRINT    DRVACCESSERROR              ; print drive error
+                call        IDERESET                    ; reset the drive
+                clc                                     ; not really a function problem
+;
+.DrvCopyExit:
+                mov         sp,bp                       ; restore stack frame
+                pop         bp                          ; restore registers and exit
+                pop         ds
+                pop         es
+                pop         di
+                pop         si
+                pop         dx
+                pop         cx
+                pop         bx
+                pop         ax
+                ret
 ;
 ;-----------------------------------------------;
 ; print help text								;
@@ -804,6 +1043,8 @@ NEXTDECCHAR:	lodsb									; get character
 				jz			ASCII2NUMOK					; exit if done processing string
 				call		CHAR2NUM					; convert character to number now in AL
 				jc			ASCII2NUMERR				; exit if error in digit
+				cmp         al,9                        ; max. digit is 9
+				ja          ASCII2NUMERR                ; exit with error if over 9
 				xor         ah,ah
 				mul			cx							; multiply the number by the power
 				jo			ASCII2NUMERR				; if DX has sugnificant digits then we have an error
@@ -1315,6 +1556,7 @@ XFREPILOG:		mov			word [ss:bp+XBYTECOUNT],0	; clear buffer count for next write 
 HDDWRITEERR:	mov			ax,XMODEMWAITERR
 				call		WAITFIX						; wait a bit to clear console
 				mcrPRINT	XMODEMHDDERR				; print error message
+				call        IDERESET                    ; reset the drive
 ;
 ;-----	restore keyboard input buffer
 ;
@@ -1382,28 +1624,31 @@ MONPROMPT:		db			"mon88>", 0
 MONCMDERR:		db			" [mon88] command syntax error", CR, LF, 0
 MONCMDNONE:		db			" [mon88] command not implemented", CR, LF, 0
 MONTOKENERR:	db			" [mon88] too many parameters", CR, LF, 0
+BADSIGNITURE:   db          " [mon88] bad signiture in code header", CR, LF, 0
 MONCMDHELP:		db			"monitor commands:", CR, LF
-				db			"+ ipl ......................... attempt an IPL", CR, LF
-				db			"+ cold ........................ cold start", CR, LF
-				db			"+ warm ........................ warm start", CR, LF
-				db			"+ memwr <seg> <off> ........... download to mem.", CR, LF
-				db			"+ drvwr <lbaH> <lbaL> [<sec>] . download to disk", CR, LF
-				db			"  memrd <seg> <off> <cnt> ..... upload from mem.", CR, LF
-				db			"  drvrd <lbaH> <lbaL> <cnt> ... upload from disk", CR, LF
-				db			"  go <seg> <off> .............. run code", CR, LF
-				db			"+ iord <port> ................. input from port", CR, LF
-				db			"+ iowr <port> <byte> .......... output to port", CR, LF
-				db			"+ memdump <seg> <off> ......... read and disp mem.", CR, LF
-				db			"+ drvdump <lbaH> <lbaL> ....... display sector", CR, LF
-				db			"+ help ........................ print help text", CR, LF, 0
+				db			"+ ipl ............................. attempt an IPL", CR, LF
+				db			"+ cold ............................ cold start", CR, LF
+				db			"+ warm ............................ warm start", CR, LF
+				db			"+ memwr <seg> <off> ............... download to mem.", CR, LF
+				db			"+ drvwr <lbaH> <lbaL> [<sec>] ..... download to disk", CR, LF
+				db			"  memrd <seg> <off> <cnt> ......... upload from mem.", CR, LF
+				db			"  drvrd <lbaH> <lbaL> <cnt> ....... upload from disk", CR, LF
+				db			"+ go <seg> <off> .................. run code", CR, LF
+				db			"+ iord <port> ..................... input from port", CR, LF
+				db			"+ iowr <port> <byte> .............. output to port", CR, LF
+				db			"+ memdump <seg> <off> ............. read and disp mem.", CR, LF
+				db			"+ drvdump <lbaH> <lbaL> ........... display sector", CR, LF
+				db          "+ drvcp <sH> <sL> <dH> <dL> <sec> . copy sectors", CR, LF
+				db			"+ help ............................ print help text", CR, LF, 0
 MONPORTRD1:		db			"port(0x", 0
 MONPORTRD2:		db			"),0x", 0
-DRVREADERROR:	db			" [DRV] read error", CR, LF, 0
+DRVACCESSERROR:	db			" [DRV] read/write error", CR, LF, 0
 XMODEMHOSTTOV:	db			CR, LF, " [XMODEM] host connection time-out", CR, LF, 0
 XMODEMCANCEL:	db			CR, LF, " [XMODEM] session ended/cancelled by host", CR, LF, 0
 XMODEMBADRESP:	db			CR, LF, " [XMODEM] bad response from host", CR, LF, 0
 XMODEMRETRYERR:	db			CR, LF, " [XMODEM] retry count exceeded", CR, LF, 0
 XMODEMHDDERR:	db			CR, LF, " [XMODEM] HDD write error", CR, LF, 0
+SECCOPY:        db          CR, " sectors left to copy:       ", BS, BS, BS, BS, BS, BS, 0
 ;
 ; -- end of file --
 ;

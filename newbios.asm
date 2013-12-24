@@ -39,7 +39,7 @@ segment         .text       start=0         			; start at top of EEPROM
 ;
 COLD:           mov         ax,BIOSDATASEG  			; entered by POWER_ON/RESET or forced cold restart
                 mov         ds,ax
-                mov         word [ds:bdBOOTFLAG],0  	; show data areas not initialized to foce memory check
+                mov         word [ds:bdBOOTFLAG],0  	; show data areas not initialized to force memory check
 
 WARM:           cli										; clear interrupt flag -> disabled
 				mov			al,NMIDIS
@@ -1701,6 +1701,19 @@ INT13OK:        call        PRINTREGS
 INT13OK:        push        si
 %endif
 ;
+%ifdef         SSSPDEBUG
+                mcrPRINT    PRSSSP                      ; print [SS:SP] value
+                push        ax
+                mov         ax,ss
+                call        PRINTHEXW
+                mov         al,(':')
+                call        PRINTCHAR
+                mov         ax,sp
+                call        PRINTHEXW
+                mcrPRINT    CRLF
+                pop         ax
+%endif
+;
                 mov			si,ax						; save function and command in SI
 				mov			al,ah
 				xor         ah,ah						; AX has function number
@@ -2063,7 +2076,11 @@ INT15:			stc										; set carry flag
 ;		AL = 00h success, 01h fail/full			;
 ;	AH = 10h extended read (same as 00h)		;
 ;	AH = 11h extended status (same as 01h)		;
-;	AH = 12h extended shift status (ignored)	;
+;   AH = FFh KEYBOARD - KBUF extensions         ;
+;            ADD KEY TO TAIL OF KEYBOARD BUFFER ;
+;       DX = scan code                          ;
+;       Return:                                 ;
+;       AL = status 00h success 01h failure     ;
 ; exit:											;
 ;	as listed above, AX and flags changes, all	;
 ;	other registers are preserved				;
@@ -2086,6 +2103,8 @@ INT16:			sti										; enable other interrupts
 				je			INT16READ					; func. 10h read keyboard buffer
 				cmp			ah,11h
 				je			INT16STATUS					; func. 11h same as function 01h
+				cmp         ah,0ffh
+				je          INT16EXT                    ; func. ffh response to extension invoked by DOS6.22 UNDELETE
 ;
 				mcrPRINT	INT16DBG					; print unhandled function code
 				xchg		al,ah
@@ -2159,6 +2178,12 @@ INT16WRNOOVR:   mov         [ds:di],cl                  ; store in buffer
 INT16WREXIT:    pop         ds
                 pop         di
 				jmp			INT16EXIT
+;
+;-----  KBUF extensions - ADD KEY TO TAIL OF KEYBOARD BUFFER
+; @@- respond to DOS 6.22 UNDELETE utility (http://www.ctyme.com/intr/rb-1941.htm)
+;
+INT16EXT:       mov         al,01h                      ; signal extension failure
+                jmp         INT16EXIT
 ;
 ;----- INT 19 ----------------------------------;
 ; boot strap loader from track 0 sector 1 into	;
@@ -3571,17 +3596,17 @@ IDERSTMSG:		db			"(reset) ", 0
 IDENOTRDY:		db			"- not ready after power-on - ", 0
 IDEDIAGMSG:		db			"IDE diagnostics ", 0
 IDEIDENTITYMSG:	db			"IDE identity ", 0
-DRIVEEMULMSG:	db			"emulated drive ", 0
 CYLMSG:			db			"  cylinders  ", 0
 HEADSMSG:		db			"  heads      ", 0
 SECMSG:			db			"  sectors    ", 0
 SERIALMSG:		db			"  serial     [", 0
 MODELMSG:		db			"  model      [", 0
+DRIVEEMULMSG:   db          "emulated drive ", CR, LF, 0
 TYPE1MSG:		db			"  type       01 diskette, no change detection", CR, LF, 0
 TYPE2MSG:		db			"  type       02 diskette, change detection", CR, LF, 0
 TYPE3MSG:		db			"  type       03 fixed disk", CR, LF, 0
 LBAOFFMSG:		db			"  LBA offset ", 0
-BOOTINGMSG:		db			"booting OS", CR, LF, 0
+BOOTINGMSG:		db			"booting OS ...", CR, LF, 0
 IPLFAILMSG:		db			"OS boot (IPL) failed", CR, LF, 0
 PRAX:           db          CR, LF, " ax=0x", 0
 PRBX:           db          " bx=0x", 0
@@ -3592,6 +3617,7 @@ PRDI:           db          " di=0x", 0
 PRES:           db          " es=0x", 0
 PRDS:           db          " ds=0x", 0
 PRBP:           db          " bp=0x", 0
+PRSSSP:         db          CR, LF, " [SS:SP]=",0
 ;
 ; VT100 escape codes
 ; http://ascii-table.com/ansi-escape-sequences-vt-100.php
@@ -3777,7 +3803,7 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)	; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "12/07/13"          		; Release date MM/DD/YY
+                db          "12/23/13"          		; Release date MM/DD/YY
 ;
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                		; Computer type (XT)

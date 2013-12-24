@@ -24,6 +24,7 @@ DEPENDENCIES = newbios.asm memdef.asm iodef.asm
 #DEBUG = -dINT13DEBUG -dINT10DEBUG
 #DEBUG = -dINT10DEBUG
 #DEBUG = -dINT13DEBUG
+#DEBUG = -dSSSPDEBUG
 
 all : bin srec
 
