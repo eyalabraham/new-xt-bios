@@ -5,12 +5,12 @@
   The BIOS replacement is for a PC/XT clone, strip-down 8088 / 640KB mother board.
   The *only* hardware added on the system board are:
    - ROM for BIOS
-   - custom built USART to replace CRT and keyboard.
+   - custom built UART to replace CRT and keyboard.
    - IDE-8255 HDD interface with a 40GB IDE drive that is a host for emulated floppies A: and B: and a fixed disk C:
 
   This custom BIOS will initialize a system with no display card, no parallel port, no RS232, and will provide support for booting and running DOS, and in the future ELKS or MINIX.
   
   Connection with the system is through a terminal emulator via the UART interface. The BIOS INT10 functions provide VT100 escape codes to emulate PC BIOS display management whenever possible; clear screen, screen scrolling etc.
-  The BIOS INT13 function allow the emulation of two floppy drives and a single 4GB fixed disk on a single host IDE HDD.
+  The BIOS INT13 functions allow the emulation of two floppy drives and a single 2GB fixed disk on a single host IDE HDD.
   
-  BIOS also include a basic monitor mode that allows user to directly load the host HDD. Can be used to read or write floppy or fixed disk images for booting different OSs.
+  BIOS also includes a basic monitor mode that allows the user to directly load the host HDD, load and execute code. Can be used to read or write floppy or fixed disk images for booting different OSs.
