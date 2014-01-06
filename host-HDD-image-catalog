@@ -1,0 +1,45 @@
+;-----------------------------------------
+;
+; alternate image catalog, for floppy A: changer
+; this is implemented for minix installation
+; that requires multiple floppy diskettes
+;
+;-----------------------------------------
+
+Start                   End         LBA         Contents
+LBA                     LBA         Count    
+======================= =========== =========== ======================================
+         0 0000h:0000h        2879        2880   alt.0 Floppy A: 1.44MB |
+      3000 0000h:0BBBh        5879        2880   alt.1 Floppy A:        | select with dip
+      6000 0000h:1770h        8879        2880   alt.2 Floppy A:        | switches SW7 and SW8
+      9000 0000h:2328h       11879        2880   alt.3 Floppy A:        |
+     12000 0000h:2EE0h       14879        2880   Floppy B: 1.44MB
+     15000 0000h:3A98h     4200215     4185216   Fixed Disk   2GB
+
+   4300000 0041h:9CE0h                    2880   + DOS 6.22 image
+   4303000 0041h:A898h                    2880   + DOS formated floppy
+   4306000 0041h:B450h                    2880     Minix 2.0 boot image
+   4309000 0041h:C008h                    2880     Minix USR part 1 image
+   4312000 0041h:CBC0h                    2880     Minix USR part 2 image
+   4315000 0041h:D778h                    2880     Minix USR part 3 image
+   4318000 0041h:E330h                    2880     Minix SYS part 1 image
+   4321000 0041h:EEE8h                    2880     Minix SYS part 2 image
+   4324000 0041h:FAA0h                    2880     Minix CMD part 1 image
+   4327000 0042h:0658h                    2880     Minix CMD part 2 image
+   4330000 0042h:1210h     4332879        2880     Minix CMD part 3 image
+
+;-----------------------------------------
+;
+; original new BIOS image catalog
+; this file lists the LBA offsets of floppy
+; and fixed disks hosted on the 40GB IDE HDD
+;
+;-----------------------------------------
+
+Start       End         LBA         Contents
+LBA         LBA         Count    
+=========== =========== =========== ======================================
+         0        2879        2880   Floppy A: 1.44MB
+      3000        5879        2880   Floppy B: 1.44MB
+      6000     4191215     4185216   Fixed Disk   2GB
+

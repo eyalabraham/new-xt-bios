@@ -274,18 +274,19 @@ PPIPBINIT:		equ			10110001b			; PPI Port B initialization
 ;						| | | | | | | |
 ;						| | | | | | | +- SW1: ROM Monitor  [on ], SW5: Display-0 [on ]
 ;						| | | | | | +--- SW2: Coprocessor  [off], SW6: Display-1 [on ]
-;						| | | | | +----- SW3: RAM-0        [on ], SW7: Drive-0   [on ]
-;						| | | | +------- SW4: RAM-1        [on ], SW8: Drive-1   [off]
+;						| | | | | +----- SW3: RAM-0        [on ], SW7: Drive-0   [??? ]
+;						| | | | +------- SW4: RAM-1        [on ], SW8: Drive-1   [???]
 ;						| | | +--------- spare
 ;						| | +----------- timer-2 out
 ;						| +------------- IO channel check
 ;						+--------------- RAM parity check
 ;
+;                                                       Floppy select
 ; RAM-1 RAM-0        Display-1 Display-0                Drive-1 Drive-0
-;  0     0    64K       0         0      reserved         0       0     1 drive
-;  0     1   128K       0         1      color 40x25      0       1     2 drives
-;  1     0   192K       1         0      color 80x25      1       0     3 drives
-;  1     1   256K       1         1      mono  80x25      1       1     4 drives
+;  0     0    64K       0         0      reserved         0       0     Floppy alt.0
+;  0     1   128K       0         1      color 40x25      0       1     Floppy alt.1
+;  1     0   192K       1         0      color 80x25      1       0     Floppy alt.2
+;  1     1   256K       1         1      mono  80x25      1       1     Floppy alt.3
 ;
 ; 8255 PPI.PA 7-segment driver
 ; PA.0 segment 'a'
@@ -469,6 +470,7 @@ BAUDDIVHI:		equ			00h					; with 4.9152MHz crustal
 ;
 FLOPPYCNT:      equ         2                   ; system floppy drive count. must match DIP switches!!
 FIXEDCNT:       equ         1                   ; system fixed disk count
+ALTFLPSPACING:  equ         3000                ; LBA spacing between alternate floppy drives
 ;
 IDETOV:			equ			55					; IDE drive time out value in BIOS ticks (approx. 1sec)
 ;

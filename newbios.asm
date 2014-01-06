@@ -16,6 +16,12 @@
 ;	Peter Norton    : http://www.ousob.com/ng/peter_norton/index.php
 ;					: http://www.ousob.com/ng/peter_norton/ng76349.php
 ;
+; change log:
+;   xx/xx/14    support for multiple A: / fd0 floppy drives using dip switches SW7 and 8
+;               to allow minix installation from multiple floppy diskettes
+;               system floppy count is now hard coded to two (2)
+;               see host-HDD-image-catalog for details
+;
 ;********************************************************************
 ;
 ; change log
@@ -529,20 +535,31 @@ VECCOPY:		movsw									; copy the vector offser component
 				in			al,PPIPC					; read switches 5..8
 				mov			cl,4
 				rol			al,cl						; shift switch bit to high nibble
-				and			al,11110000b				; isolate switch bits
+				and			al,00110000b				; isolate switch bits
+				or          al,01000000b                ; hard code for two (2) floppy drives
 				or			al,ah						; merge switch bits
 				sub			ah,ah
 				mov			[ds:bdEQUIPMENT],ax			; save equipment flags
 ;
+;-----  print configuration bits
+;
+                mcrPRINT    SYSCONFIG                   ; print system configuration message
+                call        PRINTHEXW                   ; print config word as HEX
+                mcrPRINT    CRLF                        ; print new line
+;
+;-----  setup initial alternate floppy image LBA offset
+;
+				call        GETALTFLP0                  ; set selected alternate floppy
+;
+				mcrPRINT    ALTFLPMSG                   ; print floppy image selection
+				xor         ax,ax
+				mov         al,[ds:bdALTFLOPPY]
+				call        PRINTDEC
+				mcrPRINT    CRLF
+;
 ;-----  fixed disk count
 ;
                 mov         byte [ds:bdFIXEDDRVCNT],FIXEDCNT ; count of fixed drives
-;
-;-----	print configuration bits
-;
-				mcrPRINT	SYSCONFIG					; print system configuration message
-				call		PRINTHEXW					; print config word as HEX
-				mcrPRINT	CRLF						; print new line
 ;
 ; @@- (not implemented) scan for paralle ports, com ports, game ports etc. and store configuration
 ;
@@ -1688,17 +1705,19 @@ INT13COUNT:		equ			($-INT13JUMPTBL)/2			; length of table for validation
 ;
 INT13:			sti										; enable interrupts
 				cmp			ah,INT13COUNT
-				jb			INT13OK                     ; continue if function is in range
+				jb			.int_13_ok                  ; continue if function is in range
 				call        INT13IGNORE                 ; call 'ignore' handler if out of range
 				mov         ah,INT13BADCMD              ; signal function error
 				stc
-				jmp         INT13EXIT
+				jmp         .int_13_exit
 ;
 %ifdef         INT13DEBUG
-INT13OK:        call        PRINTREGS
+.int_13_ok:
+                call        PRINTREGS
                 push        si
 %else
-INT13OK:        push        si
+.int_13_ok:
+                push        si
 %endif
 ;
 %ifdef         SSSPDEBUG
@@ -1724,7 +1743,8 @@ INT13OK:        push        si
 ;
 ;-----	store function call status
 ;
-INT13EXIT:      push		ds
+.int_13_exit:
+                push		ds
 				push		ax
 				mov			ax,BIOSDATASEG				; establish pointer to BIOS data structure
 				mov			ds,ax
@@ -3020,7 +3040,10 @@ CHS2LBA:		push        bx
                 cmp         ax,[es:di+ddDRVMAXLBALO]
                 jae         CHS2LBAERR
 ;
-				add			ax,[es:di+ddDRVHOSTOFF]		; add LBA offset for virtual drive location
+                mov         bx,BIOSDATASEG
+                mov         es,bx                       ; pointer to BIOS data
+;
+				add			ax,[es:bdHOSTLBAOFF]		; add LBA offset for virtual drive location
 				adc			dx,0						; complete the 32 bit addition
 				clc
 				jmp         CHS2LBAEXIT
@@ -3047,19 +3070,24 @@ CHS2LBAEXIT:
 ; this subroutine checks the existance of the 	;
 ; drive number passed in DL, and returns a		;
 ; pointer to the drive's parameter table		;
+; as well as set the drives LBA offset into the ;
+; host HDD.                                     ;
 ;												;
 ; entry:										;
 ;	DL drive number/ID							;
 ; exit:											;
 ;	ES:DI drive parameter table					;
-;	CY.f = 0 conversion ok						;
-;	CY.f = 1 failed, CHS out of range			;
+;   BIOS data locations                         ;
+;    bdHOSTLBAOFF = LBA offset                  ;
+;	CY.f = 0 drive ID is ok, ES:DI are valid    ;
+;	CY.f = 1 bad drive ID                       ;
 ;	all other work registers preserved			;
 ;-----------------------------------------------;
 ;
 CHECKDRV:		push		ax
 				push		cx
 				push		si
+				push        ds
 ;
 				mov			ax,cs						; make ES = CS
 				mov			es,ax
@@ -3069,33 +3097,85 @@ CHECKDRV:		push		ax
 				mov			cx,ax						; make CX into a counter
 				inc			si							; point to drive-data tables pointer list
 ;
-NEXTDRIVE:		mov			di,[es:si]					; DI = pointer offset to drive data table
+.next_drive:
+        		mov			di,[es:si]					; DI = pointer offset to drive data table
 				cmp			dl,[es:di]					; does this drive match requested drive ID in DL?
-				jz			FOUNDDRIVE					;  yes, return drive parameters
+				je			.found_drive				;  yes, return drive parameters
 				add			si,2						;  no, point to next drive on the list
-				loop		NEXTDRIVE					; loop to handle all drives
+				loop		.next_drive					; loop to handle all drives
 				stc										; drive not found indicate function error
-				jmp			CHKDRVEXIT					; exit
+				jmp			.exit_check_drive			; exit
 ;
-FOUNDDRIVE:		clc										; no error
-CHKDRVEXIT:		pop			si
+.found_drive:
+;
+; @@- this is dangerous! but there is no better place for this call.
+;     the issue will be if the switches are changed between multiple accesses to the drive.
+;     there is no way to tell from within BIOS which set of access calls are related,
+;     so we rely on the user not to change the switches
+;
+                xor         ax,ax
+                or          dl,dl                       ; is this drive 0?
+                jnz         .not_drive_0                ;  no, skip LBA offset calculation
+                call        GETALTFLP0                  ;  yes, set selected alternate floppy
+                jc          .exit_check_drive           ; exit here if error
+.not_drive_0:
+                add         ax,[es:di+ddDRVHOSTOFF]     ; AX either has '0' or an alt floppy offset for drive-0
+                jc          .exit_check_drive           ; leave the CY.f from the 'add' operation
+;
+                mov         cx,BIOSDATASEG
+                mov         ds,cx
+                mov         [ds:bdHOSTLBAOFF],ax        ; store the offset
+                clc                                     ; no errors at this point
+;
+.exit_check_drive:
+        		pop         ds
+        		pop			si
 				pop			cx
 				pop			ax
 				ret
 ;
 ;-----------------------------------------------;
-; this subroutine returns the drives attached	;
-; to the system.								;
-;												;
-; entry:										;
-;	NA											;
-; exit:											;
-;	AL number of drives							;
-;	all other work registers preserved			;
+; this subroutine reads dip switches SW7 and 8  ;
+; then calculates the LBA offset of the         ;
+; first floppy alternate image.                 ;
+; function does not check drive ID!             ;
+;                                               ;
+; entry:                                        ;
+;   check dip switches 7 and 8                  ;
+; exit:                                         ;
+;   AX LBA offset of drive into host HDD        ;
+;   BIOS data locations                         ;
+;    bdALTFLOPPY = dip switch value             ;
+;   CY.f = 0 offset in range                    ;
+;   CY.f = 1 offset out of range (16-bit)       ;
+;   all registers preserved                     ;
 ;-----------------------------------------------;
 ;
-COUNTDRV:		mov			al,[cs:(DRVPARAM+ROMOFF)]	; get drive count
-				ret
+GETALTFLP0:     push        bx
+                push        dx
+                push        ds                          ; save work registers
+;
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; point to BIOS data area
+;
+                in          al,PPIPB                    ; read PPI-PB
+                or          al,00001000b                ; enable high bank of switches
+                out         PPIPB,al
+                nop
+                in          al,PPIPC                    ; read switches 5..8
+                shr         al,1
+                shr         al,1                        ; shift switch bits
+                and         al,00000011b                ; isolate switch bits
+                mov         [ds:bdALTFLOPPY],al         ; save selected drive
+;
+                mov         bx,ALTFLPSPACING            ; get the default spacing
+                xor         ah,ah                       ; AX is now alternate floppy number (0..3)
+                mul         bx                          ; multiply to get LBA offset
+;
+                pop         ds                          ; if 'mul' overflows to DX then CY.f will be set
+                pop         dx
+                pop         bx
+                ret
 ;
 ;-----------------------------------------------;
 ; this subroutine drives the 7-segment display.	;
@@ -3483,7 +3563,7 @@ DRV1:			db			01h							; drive ID
 				db			18							; # sectors/track (1..18)
 				dw          0                           ; Max LBAs high word
 				dw			2880						; Max LBAs low word (0..2879)
-				dw			3000						; LBA offset into IDE host drive
+				dw			12000						; LBA offset into IDE host drive
 DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 				db			0							; specify byte 2; head load time, DMA mode
 				db			1							; timer ticks to wait before disk motor shutoff
@@ -3504,7 +3584,7 @@ DRV2:			db			80h							; drive ID -- fixed disk 0
 				db			63							; # sectors/track (1..63)
 				dw          003fh                       ; Max LBAs high word
 				dw			0dc80h 						; Max LBAs low word (0.. 4,185,215)
-				dw			6000						; LBA offset into IDE host drive
+				dw			15000						; LBA offset into IDE host drive
 DRV2DBT:        dw          519                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
                 db          128                         ; ( 2) # of heads
                 db          0                           ; ( 3) reserved
@@ -3586,6 +3666,7 @@ MEMTEST2KOK:	db			"first 2K byte memory test ok", CR, LF, "stack set", CR, LF, 0
 MEMTEST2KERR:	db			"first 2K byte memery test fail", CR, LF, "halting.", 0
 INTVECOK:		db			"interrupt vectors and interrupt service set", CR, LF, 0
 SYSCONFIG:		db			"system configuration switches: 0x", 0
+ALTFLPMSG:      db          "alternate floppy-0 image number: ", 0
 RAMTESTMSG:		db			CR, "RAM test: ", 0
 KBMSG:			db			"KB", 0
 RAMTESTERR:		db			CR, LF, "RAM test fail", CR, LF, "halting.", 0

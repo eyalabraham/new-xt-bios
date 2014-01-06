@@ -165,9 +165,9 @@ bdKEYBUF:		resw        16                  ; 40:1E - Keyboard Buffer (Scan,Value
 ;
 ; Diskette data area @@- should I use this for the HDD controller to be compatible with BIOS calls?
 ;
-                resb        1                   ; 40:3E - Drive Calibration bits 0 - 3
-                resb        1                   ; 40:3F - Drive Motor(s) on 0-3,7=write
-                resb        1                   ; 40:40 - Ticks (18/sec) til motor off
+bdHOSTLBAOFF:   resw        1                   ; 40:3E - alternate floppy drive offset was "Drive Calibration bits 0-3"
+                                                ; 40:3F - was "Drive Motor(s) on 0-3,7=write"
+bdALTFLOPPY:    resb        1                   ; 40:40 - alternate floppy seleted (dip switch SW7 and SW8)  was "Ticks (18/sec) til motor off"
 bdDRIVESTATUS1:	resb        1                   ; 40:41 + Floppy return code stat byte
                                                 ;       |
                                                 ;       - 001h   1 = bad ic 765 command req.
