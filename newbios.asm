@@ -1053,6 +1053,9 @@ INT0D:			push		ax
 ;       AH = number of screen columns           ;
 ;       AL = mode currently set                 ;
 ;       BH = current display page               ;
+;   AH = 12h get video configuration            ;
+;       do nothing.                             ;
+;       implemented to satisfy Minix Monitor    ;
 ;	AH = 13h write string						;
 ;		ES:BP pointer to string					;
 ;		CX    length of string					;
@@ -1063,10 +1066,13 @@ INT0D:			push		ax
 ;		BL attribute (ignored)				    ;
 ;			cursonr not moved (ignored)			;
 ;		AL    01h same as 00h move cursor		;
-;		AL    02h write chat and attr.			;
+;		AL    02h write char and attr.			;
 ;			<char><attr><char><attr>...			;
 ;			cursor not moved (ignored)			;
 ;		AL    03h same as 02h move cursor		;
+;   AH = 1Ah get video configuration            ;
+;       return AL=0 indicating no support       ;
+;       implemented to satisfy Minix Monitor    ;
 ;												;
 ; exit:											;
 ;	console output, all work registers saved	;
@@ -1096,8 +1102,15 @@ INT10JUMPTBL:	dw			(INT10F00+ROMOFF)			; * 00h		- set CRT mode
 				dw			(INT10F0F+ROMOFF)			; *	0fh		- return current video state
 				dw			(INT10IGNORE+ROMOFF)		;	10h		- Set/Get Palette Registers (EGA/VGA)
 				dw			(INT10IGNORE+ROMOFF)		;	11h		- Character Generator Routine (EGA/VGA)
-				dw			(INT10IGNORE+ROMOFF)		;	12h		- Video Subsystem Configuration (EGA/VGA)
+				dw			(INT10F12+ROMOFF)           ; * 12h		- Video Subsystem Configuration (EGA/VGA)
 				dw			(INT10F13+ROMOFF)			; *	13h		- write string
+                dw          (INT10IGNORE+ROMOFF)        ;   14h     - Load LCD Character Font
+                dw          (INT10IGNORE+ROMOFF)        ;   15h     - Return Physical Display Parms
+                dw          (INT10IGNORE+ROMOFF)        ;   16h     - n/a
+                dw          (INT10IGNORE+ROMOFF)        ;   17h     - n/a
+                dw          (INT10IGNORE+ROMOFF)        ;   18h     - n/a
+                dw          (INT10IGNORE+ROMOFF)        ;   19h     - n/a
+                dw          (INT10F1A+ROMOFF)           ; * 1ah     - Get video Display Combination (VGA)
 ;
 INT10COUNT:		equ			($-INT10JUMPTBL)/2			; length of table for validation
 ;
@@ -1288,6 +1301,13 @@ INT10F0F:		mov			ah,CRTCOLUMNS				; screen columns
 				ret
 ;
 ;-----------------------------------------------;
+; INT 10, 12h - Video Subsystem Configuration   ;
+;-----------------------------------------------;
+;
+INT10F12:       nop                                     ; change/do nothing
+                ret                                     ; this function is implemented to satisfy Minix Monitor
+;
+;-----------------------------------------------;
 ; INT 10, 13h - write string					;
 ;-----------------------------------------------;
 ;
@@ -1309,6 +1329,13 @@ SPECIALCHAR:	inc			bp							; point to next character
 				inc			bp							; skip the attribute byte
 NOATTR:			loop		INT10CHRLOOP				; loop through string
 INT10F13EXIT:	ret
+;
+;-----------------------------------------------;
+; INT 10, 1ah - Get video Display Combination   ;
+;-----------------------------------------------;
+;
+INT10F1A:       mov         al,0                        ; respond with 'invalid' reqeust
+                ret                                     ; this function is implemented to satisfy Minix Monitor
 ;
 ;-----------------------------------------------;
 ; INT 10, all unhandled functions				;
