@@ -1146,7 +1146,7 @@ INT10F00:       sti
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; establish segment of BIOS data structure
                 pop         ax
-				mov			byte [ds:bdVIDEOMODE],al	; save video more in 40:49
+				mov			byte [ds:bdVIDEOMODE],al	; save video mode in 40:49
 				pop			ds
 				ret
 ;
@@ -1883,7 +1883,7 @@ INT13F03:		push		ds
 				jnc			F03CMDSET					; no error continue with command setup
 				mov			ah,INT13BADSEC				; bad CHS error 'address mark not found or bad sector'
 				mov			al,0						; nothing written
-				add			sp,4						; adjust SP for saved registers AX and BX
+				add			sp,4						; adjust SP for saved registers AX and DX
 				stc
 				jmp			F03EXIT						; conversion error, CHS tuple out of range
 ;
@@ -2581,7 +2581,7 @@ IDEREAD:		push		ax
 				push		es							; save work registers
 ;
 				mov			cl,al						; make CL block counter
-				mov			di,bx						; pointer to data buffer is not in [ES:DI]
+				mov			di,bx						; pointer to data buffer is now in [ES:DI]
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; segment pointer to BIOS data
 ;
@@ -2655,7 +2655,7 @@ IDEWRITE:		push		ax
 				push		ds							; save work registers
 ;
 				mov			cl,al						; make CL block counter
-				mov			di,bx						; pointer to data buffer is not in [ES:DI]
+				mov			di,bx						; pointer to data buffer is now in [ES:DI]
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; segment pointer to BIOS data
 ;
@@ -3014,24 +3014,26 @@ CHS2LBA:		push        bx
 %endif
 ;
 				call		CHECKDRV					; check for valid drive ID, and get [ES:DI] pointer to drive info
-				jc			CHS2LBAEXIT					;  not valid, exit with CY.f set
+				jc			.chs2lba_exit				;  not valid, exit with CY.f set
 ;
 ;-----	store formula parameters on stack
 ;
-                xor         ax,ax
-				mov			al,cl						; get sector number
-				and			al,00111111b				; clear cylinder bits
+				mov			ax,cx						; get sector number
+				and			ax,003fh				    ; clear cylinder bits
 				dec			ax							; subtract 1
 				push		ax							; save on stack (s - 1) @ [bp-2]
 ;
+				xor         ax,ax
 				mov			al,[es:di+ddDRVGEOSEC]		; get drive sectors per track
 				push		ax							; save on stack S @ [bp-4]
 ;
+				xor         ax,ax
 				mov			al,dh						; get head number
 				push		ax							; save on stack	h @ [bp-6]
 ;
+				xor         ax,ax
 				mov			al,[es:di+ddDRVGEOHEAD]		; get drive head count
-				inc         al                          ; head count stored as '0' based!
+				inc         ax                          ; head count stored as '0' based!
 				push		ax							; save on stack H @ [bp-8]
 ;
 				mov			al,ch						; get low order cylinder number
@@ -3053,7 +3055,7 @@ CHS2LBA:		push        bx
 				mov         ax,cx
 				mov         cx,dx
 				mul         word [bp-4]                 ; second multiplication in [DX:AX]
-				jc          CHS2LBAERR                  ; overflow and error in conversion
+				jc          .chs2lba_error              ; overflow and error in conversion
 				mov         dx,ax
 				xor         ax,ax
 				add         ax,bx
@@ -3063,25 +3065,26 @@ CHS2LBA:		push        bx
 				adc         dx,0
 ;
                 cmp         dx,[es:di+ddDRVMAXLBAHI]    ; check LBA is in drive LBA range
-                ja          CHS2LBAERR
+                ja          .chs2lba_error
+                jb          .good_LBA
                 cmp         ax,[es:di+ddDRVMAXLBALO]
-                jae         CHS2LBAERR
+                jae         .chs2lba_error
 ;
-                mov         bx,BIOSDATASEG
+.good_LBA       mov         bx,BIOSDATASEG
                 mov         es,bx                       ; pointer to BIOS data
 ;
 				add			ax,[es:bdHOSTLBAOFF]		; add LBA offset for virtual drive location
 				adc			dx,0						; complete the 32 bit addition
 				clc
-				jmp         CHS2LBAEXIT
+				jmp         .chs2lba_exit
 ;
-CHS2LBAERR:     mov         ax,0ffffh                   ; load 28-bit bogus LBA to be safe
+.chs2lba_error: mov         ax,0ffffh                   ; load 28-bit bogus LBA to be safe
                 mov         dx,0fffh
                 stc
 ;
 ;-----	exit
 ;
-CHS2LBAEXIT:
+.chs2lba_exit:
 %ifdef         INT13DEBUG
                 call        PRINTREGS
 %endif
@@ -3714,7 +3717,7 @@ TYPE1MSG:		db			"  type       01 diskette, no change detection", CR, LF, 0
 TYPE2MSG:		db			"  type       02 diskette, change detection", CR, LF, 0
 TYPE3MSG:		db			"  type       03 fixed disk", CR, LF, 0
 LBAOFFMSG:		db			"  LBA offset ", 0
-BOOTINGMSG:		db			"booting OS ...", CR, LF, 0
+BOOTINGMSG:		db			ESC, "[2J", "booting OS ...", CR, LF, 0
 IPLFAILMSG:		db			"OS boot (IPL) failed", CR, LF, 0
 PRAX:           db          CR, LF, " ax=0x", 0
 PRBX:           db          " bx=0x", 0
@@ -3911,8 +3914,8 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)	; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "12/23/13"          		; Release date MM/DD/YY
-;
+                db          "09/25/14"          		; Release date MM/DD/YY
+;                                                       NOTE: changing release year will affect xmodem upload utility!
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                		; Computer type (XT)
                 db          0ffh               			; Checksum byte
