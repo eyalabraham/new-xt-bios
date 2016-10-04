@@ -453,7 +453,7 @@ MSR:			equ			306h				; MODEM Status Reg.
 SCRATCH:		equ			307h				; Scratchpad Reg. (temp read/write register)
 ;
 BAUDGENLO:		equ			300h				; baud rate generator/div accessed when bit DLAB='1'
-BAUDGERHI:		equ			301h
+BAUDGENHI:		equ			301h
 ;
 DLABSET:		equ			10000000b			; DLAB set (or) and clear (and) masks
 DLABCLR:		equ			01111111b

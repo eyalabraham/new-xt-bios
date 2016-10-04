@@ -18,9 +18,9 @@ BIOS addressable devices hosted on hard drive:
      15000 0000h:3A98h     4200215     4185216   Fixed Disk   2GB
 
 List of image library on hard drive:
-   4300000 0041h:9CE0h                    2880   + DOS 6.22 image     -> alt.1
+   4300000 0041h:9CE0h                    2880   + DOS 6.22 image     -> alt.0
    4303000 0041h:A898h                    2880   + DOS formated floppy
-   4306000 0041h:B450h                    2880   + minix-boot-v1c.img -> alt.0 (first image with changes to fit new xt bios)
+   4306000 0041h:B450h                    2880   + minix-boot-v1f.img -> alt.1
    4309000 0041h:C008h                    2880   + Minix USR part 1 image
    4312000 0041h:CBC0h                    2880   + Minix USR part 2 image
    4315000 0041h:D778h                    2880   + Minix USR part 3 image
@@ -29,7 +29,7 @@ List of image library on hard drive:
    4324000 0041h:FAA0h                    2880   + Minix CMD part 1 image
    4327000 0042h:0658h                    2880   + Minix CMD part 2 image
    4330000 0042h:1210h     4332879        2880   + Minix CMD part 3 image
-   4333000 0042h:1DC8h     4335879        2880   + *** backup of bootable Minix with all settings ***
+   4333000 0042h:1DC8h     4335879        2880   + *** backup of bootable Minix with all settings 'c6' Oct. 5 ***
    4336000 0042h:2980h     4338879        2880   + DOS floppy B backup
-   4339000 0042h:3538h     4341879        2880   + Minix /dev/fd1 backup with Oct. 3, 2014 'boot' and 'image'
+   4339000 0042h:3538h     4341879        2880     <none>
 
