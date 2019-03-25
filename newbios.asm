@@ -34,8 +34,8 @@ CPU 8086
 ; includes
 ;======================================
 ;
+%include        "iodef.asm"                             ; io port definitions
 %include        "memdef.asm"                			; memory segment and data structures
-%include        "iodef.asm"                 			; io port definitions
 ;
 ;======================================
 ; BIOS code
@@ -689,17 +689,20 @@ IDESETUP02:		mov			ah,IDEDEVCTLINIT			; IDE device control initialization disabl
 				xor			ax,ax
 				mov			si,ax
 				mov			cx,6
-CLRCMDBLOCK:	mov			[ds:si+bdIDECMDBLOCK],al	; setup IDE command block
+CLRCMDBLOCK1:	mov			[ds:si+bdIDECMDBLOCK],al	; setup IDE command block
 				inc			si
-				loop		CLRCMDBLOCK					; loop to clear comand block
+				loop		CLRCMDBLOCK1				; loop to clear comand block
 				mov			al,IDEIDENTIFY				; "identify" command
 				mov			[ds:si+bdIDECMDBLOCK],al	; store in command block
 				call		IDESENDCMD					; send command block to drive
 				jc			IDEFAIL						; command could not be sent to drive
+                call        IDERECVCMD                  ; get command block with command status
+                mov         al,[ds:bdIDECMDSTATUS]      ; get status byte
+                and         al,IDESTATERR               ; test ERR bit
+                jnz         IDEFAIL                     ; print error status if error
 				mov			bx,STAGESEG					; setup destination buffer for command output
 				mov			es,bx						;  establish pointer segment
 				mov			bx,STAGEOFF					;  establish pointer offset
-				mov			ax,1						; read 1 block of 512 bytes
 				call		IDEREAD						; read command output
 				jc			IDEFAIL						; output could not be read
 				mcrPRINT	OKMSG						; print ok
@@ -749,6 +752,52 @@ PRNTIDEMODEL:	mov			dx,[es:si+iiMODEL+bx]
 				mov			al,(']')
 				call		PRINTCHAR
 				mcrPRINT	CRLF
+;
+;-----  Set Feature command to disable write cache
+;
+                mcrPRINT    IDEDISWRCMSG
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; establish BIOS data segment
+                xor         ax,ax
+                mov         si,ax
+                mov         byte [ds:si+bdIDECMDBLOCK],082h  ; disable write cache
+                inc         si
+                mov         cx,5
+CLRCMDBLOCK2:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command block
+                inc         si
+                loop        CLRCMDBLOCK2                ; loop to clear comand block
+                mov         al,IDESETFEATURE            ; "set feature" command
+                mov         [ds:si+bdIDECMDBLOCK],al    ; store in command block
+                call        IDESENDCMD                  ; send command block to drive
+                jc          IDEFAIL                     ; command could not be sent to drive
+                call        IDERECVCMD                  ; get command block with command status
+                mov         al,[ds:bdIDECMDSTATUS]      ; get status byte
+                and         al,IDESTATERR               ; test ERR bit
+                jnz         IDEFAIL                     ; print error status if error
+                mcrPRINT    OKMSG                       ; print ok
+;
+;-----  Set Feature command 16-bit data
+;
+                mcrPRINT    IDEDIS8BITMSG
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; establish BIOS data segment
+                xor         ax,ax
+                mov         si,ax
+                mov         byte [ds:si+bdIDECMDBLOCK],081h  ; Disable 8-bit
+                inc         si
+                mov         cx,5
+CLRCMDBLOCK3:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command block
+                inc         si
+                loop        CLRCMDBLOCK3                ; loop to clear comand block
+                mov         al,IDESETFEATURE            ; "set feature" command
+                mov         [ds:si+bdIDECMDBLOCK],al    ; store in command block
+                call        IDESENDCMD                  ; send command block to drive
+                jc          IDEFAIL                     ; command could not be sent to drive
+                call        IDERECVCMD                  ; get command block with command status
+                mov         al,[ds:bdIDECMDSTATUS]      ; get status byte
+                and         al,IDESTATERR               ; test ERR bit
+                jnz         IDEFAIL                     ; print error status if error
+                mcrPRINT    OKMSG                       ; print ok
 ;
 ;-----	read drive parameter table(s) and print emulated drive list
 ;
@@ -1876,7 +1925,7 @@ INT13F03:		push		ds
 ;-----	convert CHS to LBA
 ;
 				mov			byte [ds:bdIDEFEATUREERR],0	; setup IDE command block, features not needed so '0'
-				mov			[ds:bdIDESECTORS],al		; sector count to read
+				mov			[ds:bdIDESECTORS],al		; sector count to write
 				push		ax
 				push		dx							; save parameters in AX and DX
 				call		CHS2LBA						; convert CHS address to LBA
@@ -1913,8 +1962,8 @@ F03WRDATA:		pop			dx
 				mov			ah,INT13TOVERR				; indicate 'time out, drive not ready' (could be something else, but all other causes elimnated before)
 				mov			al,0						; nothing written
 				stc
-				jmp			F03EXIT						; read failed, exit with error
-F03WRITEOK:		mov			ah,INT13NOERR				; no error, AL contains sectors writted
+				jmp			F03EXIT						; write failed, exit with error
+F03WRITEOK:		mov			ah,INT13NOERR				; no error, AL contains sectors written
 				clc
 ;
 F03EXIT:		pop			ds							; restore DS and exit
@@ -2567,7 +2616,7 @@ EXTMEMTST:		mov			ax,es
 ;	AL number of 512 block to read				;
 ; exit:											;
 ;	memory buffer containes read data and/or	;
-;	CF = '1' drive timed out					;
+;	CF = '1' drive timed out/read error
 ;	CF = '0' read completed						;
 ;	all work registers saved					;
 ;-----------------------------------------------;
@@ -2580,23 +2629,22 @@ IDEREAD:		push		ax
 				push		ds
 				push		es							; save work registers
 ;
-				mov			cl,al						; make CL block counter
 				mov			di,bx						; pointer to data buffer is now in [ES:DI]
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; segment pointer to BIOS data
 ;
-				mov			ax,IDETOV					; 1sec time out to wait for not BSY
+.TestBSY:       mov			ax,IDETOV					; 1sec time out to wait for not BSY
 				call		IDEREADY					; first check if drive is not busy
-				jc			READFAIL					; drive is stuck in busy, exit
+				jc			.ReadFail					; drive is stuck in busy, exit
 				call		IDERECVCMD					; get command block with command status
 				mov			al,[ds:bdIDECMDSTATUS]		; get status byte
 				and			al,IDESTATERR				; test ERR bit
-				jz			NOREADERR					; no error, continue
+				jz			.TestDRQ					; no error, continue
 				stc										; there is an error, set CY.f
-				jmp			READFAIL					; and exit
-NOREADERR:		mov			ax,IDETOV					; 1sec time out for DRQ wait
+				jmp			.ReadFail					; and exit
+.TestDRQ:		mov			ax,IDEDRQWAIT               ; time out for DRQ wait
 				call		IDEDRQ						; is DRQ asserted?
-				jc			READFAIL					; no, exit
+				jc			.ReadExit					; no, exit transfer is done
 				mov			dx,IDEPPI					; data is ready to read, PPI IDE control port
 				mov			al,IDEDATARD				; IDE read mode
 				out			dx,al						; set PPI for IDE read
@@ -2604,10 +2652,10 @@ NOREADERR:		mov			ax,IDETOV					; 1sec time out for DRQ wait
 				mov			al,IDEDATA					; IDE data register address and CSx
 				out			dx,al						; set the address
 ;
-;-----	85 cycles @ 4.7MHz -> 53KBps / @ 8MH -> 91KBps
+;-----	83 cycles @ 4.7MHz -> 53KBps / @ 8MH -> 91KBps
 ;
-BLOCKREADLOOP:	xor			ch,ch						; 		CH=word count, CL=block count
-READLOOP:		xor			al,IDERD					; 4
+                mov			cx,256						; 		word count
+.ReadLoop:		xor			al,IDERD					; 4
 				out			dx,al						; 8		assert the RD line
 				mov			bx,ax						; 2		save AX
 				dec			dx							; 2
@@ -2621,12 +2669,11 @@ READLOOP:		xor			al,IDERD					; 4
 				out			dx,al						; 8		negate the RD line
 				inc			di							; 2		advance pointer to next word
 				inc			di							; 2
-				dec			ch							; 3
-				jnz			READLOOP					; 16	read next word
-				dec			cl
-				jnz			BLOCKREADLOOP				; loop for next block of 512 bytes
+				loop		.ReadLoop					; 17	read next word
+				jmp			.TestBSY                    ; loop for next block of 512 bytes
 ;
-READFAIL:		pop			es
+.ReadExit:		clc
+.ReadFail:      pop			es
 				pop			ds
 				pop			di
 				pop			dx
@@ -2640,9 +2687,8 @@ READFAIL:		pop			es
 ;												;
 ; entry:										;
 ;	ES:BX pointer to source buffer				;
-;	AL number of 512 block to write				;
 ; exit:											;
-;	CF = '1' drive timed out					;
+;	CF = '1' drive timed out/write error
 ;	CF = '0' write completed					;
 ;	all work registers saved					;
 ;-----------------------------------------------;
@@ -2654,34 +2700,35 @@ IDEWRITE:		push		ax
 				push		di
 				push		ds							; save work registers
 ;
-				mov			cl,al						; make CL block counter
 				mov			di,bx						; pointer to data buffer is now in [ES:DI]
 				mov			ax,BIOSDATASEG
 				mov			ds,ax						; segment pointer to BIOS data
 ;
-				mov			ax,IDETOV					; 1sec time out to wait for not BSY
+.TestBSY:		mov			ax,IDETOV					; 1sec time out to wait for not BSY
 				call		IDEREADY					; first check if drive is not busy
-				jc			WRITEFAIL					; drive is stuck in busy, exit
+				jc			.WriteFail					; drive is stuck in busy, exit
 				call		IDERECVCMD					; get command block with command status
 				mov			al,[ds:bdIDECMDSTATUS]		; get status byte
 				and			al,IDESTATERR				; test ERR bit
-				jz			NOWRITEERR					; no error, continue
+				jz			.TestDRQ					; no error, continue
 				stc										; there is an error, set CY.f
-				jmp			WRITEFAIL					; and exit
-NOWRITEERR:		mov			ax,IDETOV					; 1sec time out for DRQ wait
+				jmp			.WriteFail					; and exit
+.TestDRQ:		mov			ax,IDEDRQWAIT				; 1sec time out for DRQ wait
 				call		IDEDRQ						; is DRQ asserted?
-				jc			WRITEFAIL					; no, exit
+				jc			.WriteExit					; no, exit
 				mov			dx,IDEPPI					; data is ready to write, PPI IDE control port
 				mov			al,IDEDATAWR				; IDE write mode
-				out			dx,al						; set PPI for IDE read
+				out			dx,al						; set PPI for IDE write
 				dec			dx							; set PPI PC IDE control lines
 				mov			al,IDEDATA					; IDE data register address and CSx
 				out			dx,al						; set the address
 ;
-;-----	85 cycles @ 4.7MHz -> 53KBps / @ 8MH -> 91KBps
+;-----	83 cycles @ 4.7MHz -> 53KBps / @ 8MH -> 91KBps
 ;
-BLOCKWRITELOOP:	xor			ch,ch						; 		CH=word count, CL=block count
-WRITELOOP:		mov			bx,ax						; 2		save AX
+                mov         cx,256                      ;       word count
+.WriteLoop:		xor         al,IDEWR                    ; 4
+                out         dx,al                       ; 8     assert the WR line
+                mov			bx,ax						; 2		save AX
 				mov			ax,[es:di]					; 14	get word to write
 				dec			dx							; 2
 				dec			dx							; 2		PPI PA IDE data port lines
@@ -2690,17 +2737,14 @@ WRITELOOP:		mov			bx,ax						; 2		save AX
 				inc			dx							; 2
 				inc			dx							; 2		point to PPI PC IDE control lines
 				xor			al,IDEWR					; 4
-				out			dx,al						; 8		assert the WR line
-				xor			al,IDEWR					; 4
 				out			dx,al						; 8		negate the WR line
 				inc			di							; 2		advance pointer to next word
 				inc			di							; 2
-				dec			ch							; 3
-				jnz			WRITELOOP					; 16	read next word
-				dec			cl
-				jnz			BLOCKWRITELOOP				; loop for next block of 512 bytes
+				loop		.WriteLoop					; 17	read next word
+				jmp			.TestBSY				    ; loop for next block of 512 bytes
 ;
-WRITEFAIL:		pop			ds
+.WriteExit:     clc
+.WriteFail:		pop			ds
 				pop			di
 				pop			dx
 				pop			cx
@@ -3548,16 +3592,15 @@ VECTORS:		dw			(IGNORE+ROMOFF)				;		00h Divide by zero
 ;
 ;-----	drive parameters
 ;
-; using IDE drive model IC25N020ATCS04 as a host drive
+; using IDE drive or CF Card in IDE mode as a host drive
 ; for emulated floppy and HDD.
 ; the table below enumerates the number of emulated
 ; floppy/HDD and their geometries.
 ; emulation will:
 ;  (1) calculate LBA number based on listed geometry
 ;  (2) add LBA offset that will position the emulated floppy/HDD
-;      in the LBA list of the host drive.
-;  (3) hosr drive has 39,070,000 addressable LBAs; resulting
-;      LBA from #2 shall not exceed maximum addresable LBAs
+;      in the LBA range of the host drive.
+;  (3) LBA from #2 shall not exceed maximum host drive addresable LBAs
 ;
 DRVPARAM:		db			(FLOPPYCNT+FIXEDCNT)        ; attached drives (max of 3, 2 x floppy, 1 x HDD)
 DRVTABLE:		dw			(DRV0+ROMOFF)				; parameter table for drive 0 (floppy A:)
@@ -3609,7 +3652,7 @@ DRV1DBT:		db			0							; specify byte 1; step-rate time, head unload time
 DRV2:			db			80h							; drive ID -- fixed disk 0
 				db			3							; type = HDD, fixed disk (see INT 13, 15h)
 				db			0							; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-				dw			518							; # cylinders -> HDD 4GB (0..518)
+				dw			518							; # cylinders -> HDD 2GB (0..518)
 				db			127							; # heads (0..127)
 				db			63							; # sectors/track (1..63)
 				dw          003fh                       ; Max LBAs high word
@@ -3706,6 +3749,8 @@ IDEINITMSG:		db			"IDE init ", 0
 IDERSTMSG:		db			"(reset) ", 0
 IDENOTRDY:		db			"- not ready after power-on - ", 0
 IDEDIAGMSG:		db			"IDE diagnostics ", 0
+IDEDISWRCMSG:   db          "IDE mode disable write cache ", 0
+IDEDIS8BITMSG:  db          "IDE mode disable 8-bit PIO ", 0
 IDEIDENTITYMSG:	db			"IDE identity ", 0
 CYLMSG:			db			"  cylinders  ", 0
 HEADSMSG:		db			"  heads      ", 0

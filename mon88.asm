@@ -720,7 +720,6 @@ DRVDUMP:		push		ax
                 mov			bx,STAGESEG
 				mov			es,bx
 				mov			bx,STAGEOFF					; pointer to data block destination
-				mov			al,1						; one (1) sector
 				call		IDEREAD						; read data from drive
 				jnc			.PrintSectorHexDump			; no read errors go to print sector
 ;
@@ -856,7 +855,6 @@ DRVCP:          push        ax
                 mov         bx,STAGESEG
                 mov         es,bx
                 mov         bx,STAGEOFF                 ; pointer to data block destination
-                mov         al,cl                       ; sectors
                 call        IDEREAD                     ; read data from drive
                 jc          .DriveError                 ; if errors then exit
 ;
@@ -884,7 +882,6 @@ DRVCP:          push        ax
                 mov         bx,STAGESEG
                 mov         es,bx
                 mov         bx,STAGEOFF                 ; pointer to data block destination
-                mov         al,cl                       ; sectors
                 call        IDEWRITE                    ; write data to drive
                 jc          .DriveError                 ; if errors then exit
 ;
@@ -1536,7 +1533,6 @@ XFRTOHDD:		mov         cx,word [ss:bp+XWRITESIZE]  ; get block count to write at
 ;-----	write sectors of data from memory buffer to the drive
 ;
 				mov			bx,STAGEOFF					; [ES:BX] pointer to write buffer
-				mov			al,cl                       ; sector count
 				call		IDEWRITE					; write data to drive
 				jc			HDDWRITEERR					; exit if HDD write error
 ;

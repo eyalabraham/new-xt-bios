@@ -473,6 +473,7 @@ FIXEDCNT:       equ         1                   ; system fixed disk count
 ALTFLPSPACING:  equ         3000                ; LBA spacing between alternate floppy drives
 ;
 IDETOV:			equ			55					; IDE drive time out value in BIOS ticks (approx. 1sec)
+IDEDRQWAIT:     equ         5                   ; wait for DRQ (approx 90mSec, perhaps too long)
 ;
 ;-----	IDE PPI IO ports
 ;
@@ -576,6 +577,7 @@ IDEINITPARAM:	equ			091h				;   8.16 INITIALIZE DEVICE PARAMETERS (pg. 134)
 IDEREADBUF:		equ			0e4h				;   8.22 READ BUFFER (pg. 149)
 IDEREADSEC:		equ			020h				; > 8.27 READ SECTOR(S) (pg. 161)
 IDESEEK:		equ			070h				;   8.35 SEEK (pg. 176)
+IDESETFEATURE:  equ         0efh                ; > 8.37 Set IDE feature (for CF card)
 IDEWRITEBUF:	equ			0e8h				;   8.44 WRITE BUFFER (pg. 227)
 IDEWRITESEC:	equ			030h				; > 8.48 WRITE SECTOR(S) (pg. 237)
 ;

@@ -6,6 +6,13 @@
 ;
 ;-----------------------------------------
 
+TRANSCEND 4GB Cf Card
+=======================
+7,962,192 sectors, LBA range: 0 to 7962191
+  cylinders  7899
+  heads      16
+  sectors    63
+
 Start                   End         LBA         Contents
 LBA                     LBA         Count    
 ======================= =========== =========== ======================================
@@ -33,3 +40,5 @@ List of image library on hard drive:
    4336000 0042h:2980h     4338879        2880   + DOS floppy B backup
    4339000 0042h:3538h     4341879        2880     <none>
 
+Maximum LBA number of CF card
+   ...                     7962192
