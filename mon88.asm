@@ -30,7 +30,7 @@
 ;   binary  00000000b - 11111111b                    ;
 ;----------------------------------------------------;
 ;
-;-----  CHECK POINT 9 and entry point to monitor mode
+;-----  entry point to monitor mode
 ;
 MONITOR:        mov         sp,STACKTOP                 ; reset stack pointer
                 mov         ax,MONSEG                   ; establish monitor data segments
@@ -48,8 +48,7 @@ MONITOR:        mov         sp,STACKTOP                 ; reset stack pointer
                 mov         [ds:si+mdBUFFTERM],ax       ; initialize buffer NULL terminator
 ;
                 mcrPRINT    MONITORMSG                  ; entering monitor mode notification
-                mcr7SEG     9                           ; display '9' on 7-seg
-                mcrPRINT    CHECKPOINT9
+                mcr7SEG     13                          ; display 'd' on 7-seg
 ;
 ;-----  get console input and process characters
 ;
@@ -77,7 +76,7 @@ INPUTLOOP:      mov         ah,00h
 ;
                 mov         bx,[ds:si+mdCHARS]          ; get charater index/count
                 cmp         bx,BUFFSIZE                 ; do we have room in the line buffer for this character?
-                jl          NOBUFFOVR                   ; yes, accept character
+                jb          NOBUFFOVR                   ; yes, accept character
                 cmp         al,BS                       ; no, but is this a backspace key?
                 jne         NOTBS                       ; not backspace, error beep
                 jmp         ISBS                        ; it is a backspace
@@ -100,8 +99,9 @@ STORECHAR:      mov         [ds:si+bx],al               ; store character in inp
                 inc         bx                          ; increment buffer input index
 ;
 CONOUTPUT:      mov         [ds:si+mdCHARS],bx          ; store input index
-                mov         ah,0eh                      ; echo character to console
-                int         10h
+;                mov         ah,0eh                      ; echo character to console
+;                int         10h
+                call        RPIVGAPUTTTY                ; echo character to console
                 jmp         INPUTLOOP                   ; get more characters
 ;
 PROCCMD:        mcrPRINT    CRLF                        ; advance one line with CR, LF sequence

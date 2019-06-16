@@ -21,9 +21,25 @@ LF:             equ         0ah                         ; line feed
 CR:             equ         0dh                         ; carriage return
 TAB:            equ         09h                         ; horizontal tab
 BS:             equ         08h                         ; back space
+BELL:           equ         07h
 SPACE:          equ         20h                         ; space
-ESC:            equ         1Bh                         ; escape character
 FORMATFILL:     equ         0f6h                        ; formatted sector fill byte
+;
+EQUIPMENTMASK:  equ         1111111000110011b           ; 'AND' mask for setting hard coded equipment bits
+EQUIPMENT:      equ         0000000001001100b           ; hard coded 'OR' mask for equipment bits
+;                           ||||||||||||||||
+;                           |||||||||||||||+----------------- 9'off')1=auto-IPL or ('on')0=mon88 (was: IPL diskette installed)
+;                           ||||||||||||||+------------------ no co-processor (get from DIP SW?)
+;                           ||||||||||||++------------------- normal RAM board
+;                           ||||||||||++--------------------- initial video mode (get from DIP SW5/6)
+;                           ||||||||++----------------------- # of diskette drives less 1
+;                           |||||||+------------------------- DMA installed
+;                           ||||+++-------------------------- # of serial ports
+;                           |||+----------------------------- game adapter
+;                           ||+------------------------------ unused
+;                           ++------------------------------- # of printer ports
+;
+ROMMONITOR:     equ         0000000000000001b
 ;
 ;======================================
 ; XMODEM equates
@@ -77,12 +93,13 @@ XHDDWRATONCE:   equ         64                          ; number of 512B blocks 
 %endmacro
 ;
 ;======================================
-; CRT properties
+; default startup CRT properties
 ;======================================
 ;
-CRTCOLUMNS:     equ         80                  ; 80 columns
-CRTMODE:        equ         7                   ; 80x25 Monochrome text (MDA,HERC,EGA,VGA)
-DEFVIDEOPAGE:   equ         0                   ; page #1
+DEFBAUDSIOA:    equ         BAUD9600
+DEFBAUDSIOB:    equ         BAUD38400
+DEFVIDEOMODE:   equ         9                   ; BIOS POST goes into special mode 9 for mon88
+;                                                 for OS boot, video mode is set based on DIP SW.5 & 6 setting
 ;
 ;======================================
 ; IO port definitions
@@ -170,6 +187,18 @@ OCW3:           equ         020h                ; read/write IRR and ISR (with D
 IRR:            equ         020h                ; interrupt request register
 ISR:            equ         020h                ; interrupt in service register
 IMR:            equ         021h                ; interrupt mask register
+;
+IMRINIT:        equ         11101110b
+;                           ||||||||
+;                           |||||||+--- b0.. (IRQ0) Timer tick
+;                           ||||||+---- b1.. (IRQ1) Keyboard attention
+;                           |||||+----- b2.. (IRQ2) Video (5-49/197 line 278)
+;                           ||||+------ b3.. (IRQ3) COM2 serial i/o
+;                           |||+------- b4.. (IRQ4) COM1 serial i/o
+;                           ||+-------- b5.. (IRQ5) Hard disk attn.
+;                           |+--------- b6.. (IRQ6) Floppy disk attention
+;                           +---------- b7.. (IRQ7) Parallel printer
+
 ;
 INIT1:          equ         00010011b           ; ICW1 initialization
 ;                           ||||||||
@@ -274,7 +303,7 @@ PPIPBINIT:      equ         10110001b           ; PPI Port B initialization
 ;                       | | | | | | | |
 ;                       | | | | | | | +- SW1: ROM Monitor  [on ], SW5: Display-0 [on ]
 ;                       | | | | | | +--- SW2: Coprocessor  [off], SW6: Display-1 [on ]
-;                       | | | | | +----- SW3: RAM-0        [on ], SW7: Drive-0   [??? ]
+;                       | | | | | +----- SW3: RAM-0        [on ], SW7: Drive-0   [???]
 ;                       | | | | +------- SW4: RAM-1        [on ], SW8: Drive-1   [???]
 ;                       | | | +--------- spare
 ;                       | | +----------- timer-2 out
@@ -598,6 +627,104 @@ IDEDATAWR:      equ         10000000b           ; PC output, PA and PB output (I
 ;                           ||+-------- b5.. mode-0
 ;                           |+--------- b6.. mode-1
 ;                           +---------- b7.. mode set '1'
+;
+;--------------------------------------
+; Z80 SIO USART ($390 - $393)
+;--------------------------------------
+;
+SIOBASE:        equ         390h
+;
+SIODATAA:       equ         SIOBASE                 ; channel A data
+SIODATAB:       equ         SIOBASE+1               ; channel B data
+SIOCMDA:        equ         SIOBASE+2               ; channel A command
+SIOCMDB:        equ         SIOBASE+3               ; channel B command
+;
+SIORR0RXC:      equ         00000001b               ; receive character ready
+SIORR0INT:      equ         00000010b               ; inetrrupt pending (channel A)
+SIORR0TXEMPYC:  equ         00000100b               ; transmit buffer empty
+SIORR0CTS:      equ         00100000b               ; CTS state
+SIORR0CTSTX:    equ         00100100b
+;                           76543210
+;                           ||||||||
+;                           |||||||+--- b0.. Receive character available
+;                           ||||||+---- b1.. Interrupt pending on channel A
+;                           |||||+----- b2.. Transmit buffer empty
+;                           ||||+------ b3.. DCD line state
+;                           |||+------- b4.. SYNC/HUNT
+;                           ||+-------- b5.. CTS line state
+;                           |+--------- b6.. Transmit underrun
+;                           +---------- b7.. Break/Abort
+;
+;--------------------------------------
+; SIO Baud rate generator ($394 - $397)
+;--------------------------------------
+;
+BAUDGEN:        equ         394h                    ; baud rate select register
+;
+;                           76543210
+;                           ||||||||
+;                           |||||+++--- b0,1,2.. SIO channel A
+;                           ||+++------ b3,4,5.. SIO channel B
+;                           ++--------- b6,7.... n/a
+;
+BAUD4800:       equ         0
+BAUD9600:       equ         1
+BAUD19200:      equ         2
+BAUD38400:      equ         3
+BAUD57600:      equ         4
+BAUD115200:     equ         5
+;
+;
+;--------------------------------------
+; SIO Ch.B RPi interface
+;--------------------------------------
+;
+END:            equ         0c0h                    ; SLIP escame codes
+ESC:            equ         0dbh                    ; https://en.wikipedia.org/wiki/Serial_Line_Internet_Protocol
+ESCEND:         equ         0dch
+ESCESC:         equ         0ddh
+;
+; | Command (5)(10)   | cmd    | byte.1       | byte.2          | byte.3        | byte.4    | byte.5     | byte.6     |
+; |-------------------|--------|--------------|-----------------|---------------|-----------|------------|------------|
+; | Set video mode    | 0      | Mode=0..9    | 0               | 0             | 0         | 0          | 0          |
+; | Set display page  | 1      | Page         | 0               | 0             | 0         | 0          | 0          |
+; | Cursor position   | 2      | Page         | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
+; | Cursor enable     | 3      | on=1 / off=0 | 0               | 0             | 0         | 0          | 0          |
+; | Put character (1) | 4      | Page         | char code       | col=0..79(39) | row=0..24 | 0          | Attrib.(2) |
+; | Get character (6) | 5      | Page         | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
+; | Put character (7) | 6      | Page         | char code       | col=0..79(39) | row=0..24 | 0          | 0          |
+; | Scroll up (4)     | 7      | Rows         | T.L col         | T.L row       | B.R col   | B.R row    | Attrib.(2) |
+; | Scroll down (4)   | 8      | Rows         | T.L col         | T.L row       | B.R col   | B.R row    | Attrib.(2) |
+; | Put pixel         | 9      | Page         | Pixel color (3) |       16-bit column       |       16-bit row        |
+; | Get pixel (8)     | 10     | Page         | 0               |       16-bit column       |       16-bit row        |
+; | Clear screen      | 11     | Page         | 0               | 0             | 0         | 0          | Attrib.(2) |
+; | Echo (9)          | 255    | 1            | 2               | 3             | 4         | 5          | 6          |
+;
+; (1) Character is written to cursor position
+; (2) Attribute: Attribute byte will be decoded per video mode
+; (3) XOR-ed with current pixel if bit.7=1
+; (4) Act on active page
+; (5) PC/XT can send partial command, any bytes not sent will be considered 0
+; (6) Return data format: two bytes {character}{attribute}
+; (7) same at command #4, but use existing attribute
+; (8) Return data format: one byte {color_code}
+; (9) Return data format: six bytes {6}{5}{4}{3}{2}{1}
+; (10) Two high order bits are command queue: '00' VGA emulation, '01' tbd, '10' tbd, '11' system
+;
+RPIVGASETVID:   equ         0
+RPIVGASETPAGE:  equ         1
+RPIVGACURSPOS:  equ         2
+RPIVGACURSENA:  equ         3
+RPIVGAPUTCHATT: equ         4
+RPIVGAGETCH:    equ         5
+RPIVGAPUTCH:    equ         6
+RPIVGASCRLUP:   equ         7
+RPIVGASCRLDN:   equ         8
+RPIVGAPUTPIX:   equ         9
+RPIVGAGETPIX:   equ         10
+RPIVGASCRCLR:   equ         11
+;
+RPISYSECHO:     equ         255
 ;
 ;--------------------------------------
 ; INT 13 status codes

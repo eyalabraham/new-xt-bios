@@ -87,7 +87,7 @@ MONOFF:         equ         0000h
 ;
 ;--------------------------------------
 ; XMODEM buffer area
-; will use 1030 bytes starting atthis addres
+; will use 1030 bytes starting at this addres
 ;--------------------------------------
 ;
 STAGESEG:       equ         0070h
@@ -141,16 +141,34 @@ struc           BIOSDATA
 ;
                 resw        4                   ; 40:00 - RS232 com. ports - up to four
                 resw        4                   ; 40:08 - Printer ports    - up to four
-bdEQUIPMENT:    resw        1                   ; 40:10 + Equipment present word
-                                                ;       |
-                                                ;       - (1 if  floppies) *     1.
-                                                ;       - (# 64K sys ram ) *     4.
-                                                ;       - (init crt mode ) *    16.
-                                                ;       - (# of floppies ) *    64.
-                                                ;       - (# serial ports) *   512.
-                                                ;       - (1 iff toy port) *  4096.
-                                                ;       - (# parallel LPT) * 16384.
-                resb        1                   ; 40:12 - MFG test flags, unused by us
+bdEQUIPMENT:    resw        1                   ; 40:10 - Equipment present word
+;
+;                                                          |F|E|D|C|B|A|9|8|7|6|5|4|3|2|1|0|
+;                                                           | | | | | | | | | | | | | | | |
+;                                                           | | | | | | | | | | | | | | | +-- IPL diskette installed
+;                                                           | | | | | | | | | | | | | | +---- math coprocessor
+;                                                           | | | | | | | | | | | | +-+------ old PC system board RAM < 256K
+;                                                           | | | | | | | | | | +-+---------- initial video mode
+;                                                           | | | | | | | | +-+-------------- # of diskette drives, less 1
+;                                                           | | | | | | | +------------------ 0 if DMA installed
+;                                                           | | | | +-+-+-------------------- number of serial ports
+;                                                           | | | +-------------------------- game adapter installed
+;                                                           | | +---------------------------- unused, internal modem (PS/2)
+;                                                           +-+------------------------------ number of printer ports
+;
+;                                                           - bits 3 & 2,  system board RAM if less than 256K motherboard
+;                                                             00 - 16K             01 - 32K
+;                                                             10 - 16K             11 - 64K (normal)
+;
+;                                                           - bits 5 & 4,  initial video mode
+;                                                               00 - unused          01 - 40x25 color
+;                                                               10 - 80x25 color         11 - 80x25 monochrome
+;
+;                                                           - bits 7 & 6,  number of disk drives attached, when bit 0=1
+;                                                               00 - 1 drive         01 - 2 drives
+;                                                               10 - 3 drive         11 - 4 drives
+;
+bdBAUDGEN:      resb        1                   ; 40:12 - SIO/2 Baud rate generator (was: MFG test flags, unused by us)
 bdMEMSIZE:      resw        1                   ; 40:13 - Memory size, kilobytes
 bdIPLERR:       resb        1                   ; 40:15 - IPL errors<-table/scratchpad
                 resb        1                   ;  ...unused
@@ -198,23 +216,31 @@ bdVIDEOMODE:    resb        1                   ; 40:49 + Current CRT mode  (sof
                                                 ;       - 1 = 40 x 25 text (16 color)
                                                 ;       - 2 = 80 x 25 text (no color)
                                                 ;       - 3 = 80 x 25 text (16 color)
-                                                ;       - 4 = 320 x 200 grafix 4 color
-                                                ;       - 5 = 320 x 200 grafix 0 color
-                                                ;       - 6 = 640 x 200 grafix 0 color
+                                                ;       - 4 = 320 x 200 grafics 4 color
+                                                ;       - 5 = 320 x 200 grafics 0 color
+                                                ;       - 6 = 640 x 200 grafics 0 color
                                                 ;       - 7 = 80 x 25 text (mono card)
-                resw        1                   ; 40:4A - Columns on CRT screen
-                resw        1                   ; 40:4C - Bytes in the regen region
+bdCRTCOL:       resw        1                   ; 40:4A - Columns on CRT screen
+bdCRTROW:       resw        1                   ; 40:4C - Rows on CRT screen (was: Bytes in the regen region)
                 resw        1                   ; 40:4E - Byte offset in regen region
-bdCURSPOS:      resw        8                   ; 40:50 - Cursor pos for up to 8 pages
-                resw        1                   ; 40:60 - Current cursor mode setting
+bdCURSPOS0:     resw        1                   ; 40:50 - Cursor pos for page 0 high order byte=row, low order byte=column
+bdCURSPOS1:     resw        1                   ; 40:52 - Cursor pos for page 1
+bdCURSPOS2:     resw        1                   ; 40:54 - Cursor pos for page 2
+bdCURSPOS3:     resw        1                   ; 40:56 - Cursor pos for page 3
+bdCURSPOS4:     resw        1                   ; 40:58 - Cursor pos for page 4
+bdCURSPOS5:     resw        1                   ; 40:5A - Cursor pos for page 5
+bdCURSPOS6:     resw        1                   ; 40:5C - Cursor pos for page 6
+bdCURSPOS7:     resw        1                   ; 40:5E - Cursor pos for page 7
+bdCURSBOT:      resb        1                   ; 40:60 - Current cursor bottom scan line
+bdCURSTOP:      resb        1                   ; 40:61 - Current cursor top scan line
 bdVIDEOPAGE:    resb        1                   ; 40:62 - Current page on display
                 resw        1                   ; 40:63 - Base addres (B000h or B800h)
                 resb        1                   ; 40:65 - ic 6845 mode reg. (hardware)
-                resb        1                   ; 40:66 - Current CGA palette
+bdCGAPALETTE:   resb        1                   ; 40:66 - Current CGA palette
 ;
 ; Used to setup ROM
 ;
-                resw        2                   ; 40:67 - Eprom base Offset,Segment
+                resw        2                   ; 40:67 - Cassette tape control (before AT)
 bdINRTFLAG:     resb        1                   ; 40:6B - Last spurious interrupt IRQ
 ;
 ; Timer data area
@@ -245,12 +271,12 @@ bdFIXEDDRVCNT:  resb        1                   ; 40:75 - fixed drive count
 bdKEYBUFSTART:  resw        1                   ; 40:80 - Contains 1Eh, buffer start
 bdKEYBUFEND:    resw        1                   ; 40:82 - Contains 3Eh, buffer end
 ;
-                resb        1                   ; 40:84 - Number of video rows (minus 1)
-                resb        2                   ; 40:85 - Number of scan lines per character
-                resb        1                   ; 40:87 - Video display adapter options
-                resb        1                   ; 40:88 - Video display adapter switches
-                resb        1                   ; 40:89 - VGA video flags 1
-                resb        1                   ; 40:8A - VGA video flags 2
+                resb        1                   ; 40:84 - Number of video rows for EGA+ (minus 1)
+                resw        1                   ; 40:85 - Number of scan lines per character for EGA+ and PCjr
+                resb        1                   ; 40:87 - Video display adapter options EGA+ (http://www.bioscentral.com/misc/bda.htm)
+                resb        1                   ; 40:88 - Video display adapter switches EGA/VGA (http://www.bioscentral.com/misc/bda.htm)
+                resb        1                   ; 40:89 - VGA video flags 1 (MCGA and VGA)
+                resb        1                   ; 40:8A - VGA video flags 2 (EGA+)
                 resb        1                   ; 40:8B - Floppy disk configuration data
                 resb        1                   ; 40:8C - Hard disk drive controller status
                 resb        1                   ; 40:8D - Hard disk drive error
@@ -267,7 +293,7 @@ bdKEYBUFEND:    resw        1                   ; 40:82 - Contains 3Eh, buffer e
                 resb        4                   ; 40:98 - Segment:Offset address of user wait flag pointer
                 resb        4                   ; 40:9C - User wait count
                 resb        1                   ; 40:A0 - User wait flag
-                resb        7                   ; 40:A1 - Local area network (LAN) bytes
+bdRPIVGACMD:    resb        7                   ; 40:A1 - Reusing this space for the RPi VGA card command (was: Local area network)
                 resb        4                   ; 40:A8 - Segment:Offset address of video parameter control block
                 resb        68                  ; 40:AC - Reserved
                 resb        16                  ; 40:F0 - Intra-applications communications area
@@ -344,6 +370,20 @@ iiMODEL:        resb        40                  ; model number 40 ASCII characte
 iiLBA:          resw        2                   ; total number of LBAs
                 resw        193
 iiCHECKSUM:     resw        1                   ; block checksum
+;
+endstruc
+;
+;--------------------------------------
+; display mode data structure
+;--------------------------------------
+;
+struc           DISPLAYMODESTRUCT
+;
+dmXRES:         resb        1
+dmYRES:         resb        1
+dmMODE:         resb        1
+dmCOLORS:       resb        1
+dmPAGES:        resb        1
 ;
 endstruc
 ;
