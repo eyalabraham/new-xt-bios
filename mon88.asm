@@ -48,7 +48,6 @@ MONITOR:        mov         sp,STACKTOP                 ; reset stack pointer
                 mov         [ds:si+mdBUFFTERM],ax       ; initialize buffer NULL terminator
 ;
                 mcrPRINT    MONITORMSG                  ; entering monitor mode notification
-                mcr7SEG     13                          ; display 'd' on 7-seg
 ;
 ;-----  get console input and process characters
 ;
@@ -1635,7 +1634,12 @@ MONCMDHELP:     db          "monitor commands:", CR, LF
                 db          "+ memdump <seg> <off> ............. read and disp mem.", CR, LF
                 db          "+ drvdump <lbaH> <lbaL> ........... display sector", CR, LF
                 db          "+ drvcp <sH> <sL> <dH> <dL> <sec> . copy sectors", CR, LF
-                db          "+ help ............................ print help text", CR, LF, 0
+                db          "+ help ............................ print help text", CR, LF
+                db          CR, LF
+                db          "  numeric parameters:", CR, LF
+                db          "    decimal 0 - 65535", CR, LF
+                db          "    hex     0000h - ffffh", CR, LF
+                db          "    binary  00000000b - 11111111b", CR, LF, 0
 MONPORTRD1:     db          "port(0x", 0
 MONPORTRD2:     db          "),0x", 0
 DRVACCESSERROR: db          " [DRV] read/write error", CR, LF, 0

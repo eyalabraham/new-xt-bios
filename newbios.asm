@@ -92,7 +92,10 @@ CPUTST:         mov         bp,bx
 CPU1:           xor         ax,1010101010101010b
                 jz          CPU_OK
 ;
-HALT:           hlt
+HALT:           mov         dx,BAUDGEN
+                mov         al,HALTSTATE
+                out         dx,al
+                hlt
 ;
 CPU_OK:         cld
 ;
@@ -113,18 +116,12 @@ CPU_OK:         cld
 ;   ***   8255 PPI   ***
 ;   ********************
 ;
-;-----  setup PPI to read DIP swithes and to drive 7447 7-seg instead of keyboard
+;-----  setup PPI to read DIP swithes and keyboard
 ;
                 mov         al,PPIINIT
                 out         PPICTRL,al                  ; setup 8255 PPI
-                mov         al,PPIPAINIT
-                out         PPIPA,al                    ; zero and blank 7-segment
                 mov         al,PPIPBINIT
                 out         PPIPB,al                    ; initialize speaker, RAM parity check, config switches
-;
-;-----  CHECK POINT 0
-;
-                mcr7SEG     0                           ; display '0' on 7-seg
 ;
 ;   ********************
 ;   ***  8253 TIMER  ***
@@ -177,10 +174,6 @@ BITSOFF:        mov         al,01000000b
                 loop        BITSOFF                     ; keep looping to poll timer count
                 jmp         HALT                        ; timer count never reached all '0', it is probably stuck
 ;
-;-----  CHECK POINT 1
-;
-TIMERGOOD:      mcr7SEG     1                           ; display '1' on 7-seg
-;
 ;   ***************************
 ;   *** 8237 DMA CONTROLLER ***
 ;   ***************************
@@ -189,7 +182,7 @@ TIMERGOOD:      mcr7SEG     1                           ; display '1' on 7-seg
 ;
 ;-----  test DMA channels
 ;
-                out         DMAMCLR,al                  ; initiate master clear to DMA controller
+TIMERGOOD:      out         DMAMCLR,al                  ; initiate master clear to DMA controller
                 mov         al,0ffh                     ; test pattern
 NEXTDMAPATT:    mov         bl,al
                 mov         bh,al
@@ -252,10 +245,6 @@ NEXTDMAREG:     inc         dx                          ; point to next channel 
                 mov         al,DMACH3MODE               ; setup channel-3 block verify
                 out         DMAMODE,al
 ;
-;-----  CHECK POINT 2
-;
-                mcr7SEG     2                           ; display '2' on 7-seg
-;
 ;   *********************************
 ;   ***    RAM test and init      ***
 ;   *********************************
@@ -308,10 +297,6 @@ MEM2KCHECK:     jc          HALT                        ; memory failure
                 mov         ss,ax                       ; segment 0030h
                 mov         sp,STACKTOP                 ; offset  0100h
 ;
-;-----  CHECK POINT 3
-;
-                mcr7SEG     3                           ; display '3' on 7-seg
-;
 ;   *********************************
 ;   *** 8259 INTERRUPT CONTROLLER ***
 ;   *********************************
@@ -362,10 +347,6 @@ VECCOPY:        movsw                                   ; copy the vector offser
                 mov         ax,cs                       ; get segment of FDPT
                 mov         word [es:VECFIXDDSK0+2],ax  ; fixed disk 1 param table
 ;
-;-----  CHECK POINT 4
-;
-                mcr7SEG     4                           ; display '4' on 7-seg
-;
 ;   ********************
 ;   ***  UART2 ch.B  ***
 ;   ********************
@@ -381,6 +362,8 @@ VECCOPY:        movsw                                   ; copy the vector offser
                 shl         al,1
                 shl         al,1
                 add         al,DEFBAUDSIOA
+                and         al,SYSSTATUS                ; status to 'green'
+                or          al,~HALTSTATE               ; halt led off
                 out         dx,al                       ; set SIO channel A and B baud rate clock
                 mov         [ds:bdBAUDGEN],al           ; initialize baud rate value in BIOS data area
 ;
@@ -412,10 +395,6 @@ WAITDISPLAY:    mov         al,00010000b                ; reset external/status 
                 in          al,dx                       ; read RR0
                 test        al,SIORR0CTS                ; test CTS line from RPi
                 jz          WAITDISPLAY
-;
-;-----  CHECK POINT 5
-;
-RPIVIDSET:      mcr7SEG     5                           ; display '5' on 7-seg
 ;
 ;   ********************
 ;   ***    UART1     ***
@@ -483,10 +462,6 @@ WAITBYTE:       mov         dx,LSR
                 and         al,11101111b
                 out         dx,al                       ; set UART back to notmal Rx/Tx mode
 ;
-;-----  CHECK POINT '6'
-;
-                mcr7SEG     6                           ; display '6' on 7-seg
-;
 ;   *********************************
 ;   ***         RPi VGA           ***
 ;   *********************************
@@ -519,10 +494,6 @@ PRNBANNER:      lodsb                                   ; get character
 ;
 ENACURS:        mov         si,(RPIVGACURSON+ROMOFF)    ; cursor 'on' command pointer
                 call        RPIVGACMDTX                 ; send
-;
-;-----  CHECK POINT 7
-;
-                mcr7SEG     7                           ; display '7' on 7-seg
 ;
 ;   *********************************
 ;   ***   SYSTEM CONFIGURATION    ***
@@ -570,10 +541,6 @@ ENACURS:        mov         si,(RPIVGACURSON+ROMOFF)    ; cursor 'on' command po
 ;
                 mov         byte [ds:bdFIXEDDRVCNT],FIXEDCNT ; count of fixed drives
 ;
-;-----  CHECK POINT 8
-;
-                mcr7SEG     8                           ; display '8' on 7-seg
-;
 ;-----  TODO: (not implemented) scan for paralle ports, com ports, game ports etc. and store configuration
 ;
 ;   *********************************
@@ -617,17 +584,13 @@ MEMTESTLOOP:    push        di
 RAMTESTFAIL:    mcrPRINT    RAMTESTERR                  ; print memory failure message
                 jmp         HALT
 ;
-;-----  CHECK POINT 9
-;
-RAMTESTPASS:    mcr7SEG     9                           ; display '9' on 7-seg
-;
 ;   *********************************
 ;   ***           MISC.           ***
 ;   *********************************
 ;
 ;-----  setup UART receiver buffer in the keyboard buffer
 ;
-                mov         ax,bdKEYBUF                 ; buffer start offset in BIOS data structure
+RAMTESTPASS:    mov         ax,bdKEYBUF                 ; buffer start offset in BIOS data structure
                 mov         [ds:bdKEYBUFHEAD],ax        ; store as buffer head pointer
                 mov         [ds:bdKEYBUFTAIL],ax        ; buffer tail pointer is same as head (empty)
                 mov         [ds:bdKEYBUFSTART],ax       ; buffer start address
@@ -664,10 +627,6 @@ RAMTESTPASS:    mcr7SEG     9                           ; display '9' on 7-seg
 ;-----  indicate cold start complete
 ;
                 mov         word [ds:bdBOOTFLAG],1234h  ; restart complete
-;
-;-----  CHECK POINT 10
-;
-                mcr7SEG     10                          ; display 'A' on 7-seg
 ;
 ;   *********************************
 ;   ***      IDE DRIVE SETUP      ***
@@ -827,10 +786,6 @@ CLRCMDBLOCK3:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command bloc
 ;
                 nop
 ;
-;-----  CHECK POINT 11
-;
-                mcr7SEG     11                           ; display 'B' on 7-seg
-;
 ;-----  check DIP switch setting and start monitor or try IPL
 ;
                 mov         ax,[ds:bdEQUIPMENT]         ; get DIP switches
@@ -877,10 +832,6 @@ IPLBOOT:        mov         ax,BIOSDATASEG
                 mov         bl,16                       ; boot beep 0.25 sec
                 call        BEEP                        ; sound beep
                 mcrPRINT    BOOTINGMSG                  ; print boot notification
-;
-;-----  CHECK POINT 12 and IPL
-;
-                mcr7SEG     12                          ; display 'C' on 7-seg
 ;
 ;-----  boot from disk
 ;
@@ -953,8 +904,7 @@ INT02:          push        ax
                 jnz         NMIPARITYERR                ; send error message
                 jmp         INT02EXIT                   ; nothing here, exit
 NMIPARITYERR:   mcrPRINT    PARITYERR                   ; print parity error message
-                mcr7SEG     SEGP                        ; display 'P'
-                hlt
+                jmp         HALT
 ;
 INT02EXIT:      pop         ax
                 iret
@@ -976,6 +926,7 @@ INT02EXIT:      pop         ax
 ;
 INT08:          push        ds
                 push        ax
+                push        dx
                 mov         ax,BIOSDATASEG
                 mov         ds,ax                       ; establish segment of BIOS data
                 cli                                     ; disable interrupts while manipulating clock
@@ -990,15 +941,18 @@ INT08:          push        ds
 USERSERVICE:    sti                                     ; reenable interrupts
                 int         1ch                         ; invoke user interrupt service
 ;
-                mov         al,byte [ds:bdTIMELOW]      ; blink 7-seg's decimal point every 8 cycles, will yield about 1Hz blink rate
+                mov         al,byte [ds:bdTIMELOW]      ; blink status LED every 8 cycles, will yield about 1Hz blink rate
                 and         al,00000111b                ; count of 8 interrupts complete?
                 jnz         DPNOCHANGE                  ; no, exit
-                in          al,PPIPA                    ; yes, then toggle DP on 7-seg
-                xor         al,10000000b
-                out         PPIPA,al
+                mov         al,[ds:bdBAUDGEN]           ; yes, toggle status LED, save, and output
+                xor         al,~SYSSTATUS
+                mov         [ds:bdBAUDGEN],al
+                mov         dx,BAUDGEN
+                out         dx,al
 ;
 DPNOCHANGE:     mov         al,EOI                      ; Send end-of-interrupt code
                 out         OCW2,al
+                pop         dx
                 pop         ax
                 pop         ds
                 iret
@@ -4082,35 +4036,6 @@ GETALTFLP0:     push        bx
                 ret
 ;
 ;-----------------------------------------------;
-; this subroutine drives the 7-segment display. ;
-; display is connected to PPI PA replacing the  ;
-; keyboard hardware.                            ;
-;                                               ;
-; entry:                                        ;
-;   AL number 00h to 0Fh to display, FFh blank  ;
-;   AH 00h D.P. off, 80h D.P. on                ;
-; exit:                                         ;
-;   all registers preserved                     ;
-;-----------------------------------------------;
-;
-SEVENSEG:       cmp         al,0fh                      ; is number in range
-                ja          SEVENSEGEXIT                ; exit if out of range
-                cmp         al,0ffh                     ; is this a blanking request
-                jnz         SEVENSEGDISP                ; no, go to a display routine
-                out         PPIPA,al                    ; yes, blank the display
-                jmp         SEVENSEGEXIT                ; and exit
-;
-SEVENSEGDISP:   push        si                          ; save work registers
-                mov         si,ax                       ; save command in SI
-                xor         ah,ah                       ; AX is index into 7-segment LED pattern table
-                xchg        si,ax                       ; AX has original command, SI has index into table
-                mov         al,[cs:si+SEGMENTTBL+ROMOFF]; convert number in AL to 7-seg pattern
-                xor         al,ah                       ; turn D.P on or off
-                out         PPIPA,al                    ; display digit
-                pop         si
-SEVENSEGEXIT:   ret
-;
-;-----------------------------------------------;
 ; this subroutine will sound the beeper using   ;
 ; timer-2 to generate a tone.                   ;
 ;                                               ;
@@ -4518,30 +4443,6 @@ DISPLAYMODE:    db           40,  25,   0,   2,   8      ; 0
                 db          160,  64,   1,   2,   1      ; 9 special mode for mon88
 ;
 MODELIST:       equ         ($-DISPLAYMODE)/5            ; display mode table length for range checking
-;
-;-----  7-seg bit table   dp gfedcba
-;                           \|||||||
-SEGMENTTBL:     db          11000000b                   ; '0' note: segment is on with '0'
-                db          11111001b                   ; '1'
-                db          10100100b                   ; '2'
-                db          10110000b                   ; '3'
-                db          10011001b                   ; '4'
-                db          10010010b                   ; '5'
-                db          10000010b                   ; '6'
-                db          11111000b                   ; '7'
-                db          10000000b                   ; '8'
-                db          10010000b                   ; '9'
-                db          10001000b                   ; 'A'
-                db          10000011b                   ; 'b'
-                db          10000110b                   ; 'C'
-                db          10100001b                   ; 'd'
-                db          10000110b                   ; 'E'
-                db          10001110b                   ; 'F'
-                db          10001001b                   ; 'H'
-                db          10001100b                   ; 'P'
-;
-SEGH:           equ         16                          ; index for 7-segment 'H'
-SEGP:           equ         17                          ; index for 7-segment 'P'
 ;
 ;-----  ASCII to SCAN CODE table
 ; source: http://stanislavs.org/helppc/scan_codes.html

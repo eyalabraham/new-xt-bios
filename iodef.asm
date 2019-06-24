@@ -85,13 +85,6 @@ XHDDWRATONCE:   equ         64                          ; number of 512B blocks 
                 pop         ax
 %endmacro
 ;
-;-----  quick 7-segment display
-;
-%macro          mcr7SEG     1
-                mov         al,[cs:SEGMENTTBL+ROMOFF+%1]
-                out         PPIPA,al
-%endmacro
-;
 ;======================================
 ; default startup CRT properties
 ;======================================
@@ -276,17 +269,15 @@ PPIPB:          equ         061h
 PPIPC:          equ         062h
 PPICTRL:        equ         063h
 ;
-PPIINIT:        equ         10001001b           ; PPI control register
+PPIINIT:        equ         10011001b           ; PPI control register
 ;                           ||||||||
 ;                           |||||||+--- b0..Port C lower input
 ;                           ||||||+---- b1..Port B output
 ;                           |||||+----- b2..Mode 0
 ;                           ||||+------ b3..Port C upper input
-;                           |||+------- b4..Port A output
+;                           |||+------- b4..Port A input
 ;                           |++-------- b5..Mode 0
 ;                           +---------- b7..Mode-set active
-;
-PPIPAINIT:      equ         SEGBLANK            ; blank 7-segment display
 ;
 PPIPBINIT:      equ         10110001b           ; PPI Port B initialization
 ;                           ||||||||
@@ -316,30 +307,6 @@ PPIPBINIT:      equ         10110001b           ; PPI Port B initialization
 ;  0     1   128K       0         1      color 40x25      0       1     Floppy alt.1
 ;  1     0   192K       1         0      color 80x25      1       0     Floppy alt.2
 ;  1     1   256K       1         1      mono  80x25      1       1     Floppy alt.3
-;
-; 8255 PPI.PA 7-segment driver
-; PA.0 segment 'a'
-; PA.1 segment 'b'
-; PA.2 segment 'c'
-; PA.3 segment 'd'
-; PA.4 segment 'e'
-; PA.5 segment 'f'
-; PA.6 segment 'g'
-; PA.7 segment 'dp'
-;
-;       -- a --
-;      |       |
-;      f       b
-;      |       |
-;       -- g --
-;      |       |
-;      e       c
-;      |       |
-;       -- d --    (dp)
-;
-DPON:           equ         01111111b           ; need to 'and' with this mask to turn the D.P 'on'
-SEGBLANK:       equ         11111111b           ; all segments are off
-LAMPTEST:       equ         00000000b           ; all segments are on
 ;
 ;--------------------------------------
 ; DMA page register
@@ -665,7 +632,8 @@ BAUDGEN:        equ         394h                    ; baud rate select register
 ;                           ||||||||
 ;                           |||||+++--- b0,1,2.. SIO channel A
 ;                           ||+++------ b3,4,5.. SIO channel B
-;                           ++--------- b6,7.... n/a
+;                           |+--------- b6    .. Green status LED
+;                           +---------- b7    .. Red status LED - HALT state
 ;
 BAUD4800:       equ         0
 BAUD9600:       equ         1
@@ -673,6 +641,8 @@ BAUD19200:      equ         2
 BAUD38400:      equ         3
 BAUD57600:      equ         4
 BAUD115200:     equ         5
+SYSSTATUS:      equ         10111111b
+HALTSTATE:      equ         01111111b
 ;
 ;
 ;--------------------------------------

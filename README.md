@@ -18,24 +18,24 @@ Includes a basic monitor mode that allows the user to directly load the host HDD
 ## BIOS POST process
 Cross reference of BIOS POST steps:
 
-| Line |  Label       | Step                                        | Checkpoint |
-|------|--------------|---------------------------------------------|------------|
-| 58   |              | CPU check                                   | n/a        |
-| 118  |              | PPI setup                                   | 0          |
-| 135  |              | TIMER setup and test                        | 1          |
-| 192  |              | DMA controller test and refresh setup       | 2          |
-| 265  |              | Determine memory size and test first 2K     |            |
-| 298  |              | First 2K ok and setup STACK                 | 3          |
-| 323  |              | Setup interrupt controller and vectors      | 4          |
-| 375  |              | SIO-ch.B setup and RPi rendezvous           | 5          |
-| 425  |              | UART1 setup and test                        | 6          |
-| 495  |              | Setup system configuration                  | 7          |
-| 545  |              | Set RPI VGA card                            | 8          |
-| 581  |              | RAM test                                    | 9          |
-| 628  |              | setup keyboard buffer, time of day, EI, NMI | 10         |
-| 676  |              | IDE setup                                   | 11         |
-| 854  |  IPLBOOT     | Boot OS                                     | 12         |
-| 876  |  MONITOR     | Monitor mode                                | 13         |
+| Line |  Label       | Step                                        |
+|------|--------------|---------------------------------------------|
+| 58   |              | CPU check                                   |
+| 212  |              | PPI setup                                   |
+| 132  |              | TIMER setup and test                        |
+| 185  |              | DMA controller test and refresh setup       |
+| 254  |              | Determine memory size and test first 2K     |
+| 296  |              | First 2K ok and setup STACK                 |
+| 308  |              | Setup interrupt controller and vectors      |
+| 356  |              | SIO-ch.B setup and RPi rendezvous           |
+| 405  |              | UART1 setup and test                        |
+| 471  |              | Set RPI VGA card                            |
+| 504  |              | Setup system configuration                  |
+| 552  |              | RAM test                                    |
+| 593  |              | setup keyboard buffer, time of day, EI, NMI |
+| 637  |              | IDE setup                                   |
+| 807  |  IPLBOOT     | Boot OS                                     |
+| 845  |  MONITOR     | Monitor mode                                |
 
 ## INT 10h register mapping
 Rssource [BIOS 10h calls](http://stanislavs.org/helppc/int_10.html)
