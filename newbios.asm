@@ -36,6 +36,7 @@ CPU 8086
 ; includes
 ;======================================
 ;
+%include        "config.asm"                            ; BIOS configuration settings
 %include        "iodef.asm"                             ; io port definitions
 %include        "memdef.asm"                            ; memory segment and data structures
 ;
@@ -372,7 +373,7 @@ VECCOPY:        movsw                                   ; copy the vector offser
                 out         dx,al
                 mov         al,00010100b                ; sel WR4 and Ext Int reset
                 out         dx,al
-                mov         al,01000100b                ; clkx16 (rate 19,200), 1 stop bit, no parity
+                mov         al,01000100b                ; clkx16, 1 stop bit, no parity
                 out         dx,al
                 mov         al,3                        ; select WR3
                 out         dx,al
@@ -395,6 +396,70 @@ WAITDISPLAY:    mov         al,00010000b                ; reset external/status 
                 in          al,dx                       ; read RR0
                 test        al,SIORR0CTS                ; test CTS line from RPi
                 jz          WAITDISPLAY
+;
+;   *********************************
+;   ***         RPi VGA           ***
+;   *********************************
+;
+;-----  test connection to RPi with an 'echo' command
+;
+                mov         ax,cs
+                mov         ds,ax                       ; establish DS for command
+                mov         si,(RPIVGAECHO+ROMOFF)      ; get echo command pointer
+                call        RPIVGACMDTX                 ; send
+                jc          HALT                        ; if CY.f=1 halt the system
+;
+;-----  set default video mode
+;
+                mov         al,DEFVIDEOMODE
+                call        RPIVGAVIDMODE               ; set default video mode
+                jc          HALT                        ; if CY.f=1 halt the system
+;
+;-----  output banner
+;
+                mcrPRINT    BANNER
+;
+;-----  enable cursor
+;
+                mov         si,(RPIVGACURSON+ROMOFF)    ; cursor 'on' command pointer
+                call        RPIVGACMDTX                 ; send
+;
+;   ********************
+;   ***  UART2 ch.A  ***
+;   ********************
+;
+;-----  initialize Z80-SIO channel B and connect with RPi diplay board
+;
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; BIOS data segment
+;
+                mov         dx,SIOCMDA
+                mov         al,00011000b                ; channel A reset
+                out         dx,al
+                mov         al,00010100b                ; sel WR4 and Ext Int reset
+                out         dx,al
+                mov         al,01000100b                ; clkx16, 1 stop bit, no parity
+                out         dx,al
+                mov         al,3                        ; select WR3
+                out         dx,al
+                mov         al,11000000b                ; Rx: 8-bit, DISABLE
+                out         dx,al
+                mov         al,5                        ; select WR5
+                out         dx,al
+                mov         al,01101000b                ; Tx, 8-bit, ENABLE, RTS not active
+                out         dx,al
+                mov         al,00010001b                ; sel WR1 and Ext Int reset
+                out         dx,al
+                mov         al,0                        ; disable all interrupts
+                out         dx,al
+                out         dx,al                       ; select WR0/RR0
+;
+%if DebugConsole
+                mcrPRINT    DEBUGCONONMSG
+                mcrDBGPRINT DEBUGCONONMSG
+%else
+                mcrPRINT    DEBUGCONOFFMSG
+%endif
 ;
 ;   ********************
 ;   ***    UART1     ***
@@ -453,7 +518,7 @@ WAITBYTE:       mov         dx,LSR
                 mov         dx,RBR
                 in          al,dx                       ; read byte from receiver register
                 cmp         cl,al                       ; compare received byte to transmitted byte
-                jne         HALT                        ; fail if they are not equal
+                jne         UARTFAIL                    ; fail if they are not equal
                 dec         cl
                 jnz         TESTLOOP                    ; loop to next test byte
 ;
@@ -461,39 +526,9 @@ WAITBYTE:       mov         dx,LSR
                 in          al,dx
                 and         al,11101111b
                 out         dx,al                       ; set UART back to notmal Rx/Tx mode
+                jmp         SYSTEMCONF
 ;
-;   *********************************
-;   ***         RPi VGA           ***
-;   *********************************
-;
-;-----  test connection to RPi with an 'echo' command
-;
-                mov         ax,cs
-                mov         ds,ax                       ; establish DS for command
-                mov         si,(RPIVGAECHO+ROMOFF)      ; get echo command pointer
-                call        RPIVGACMDTX                 ; send
-                jc          HALT                        ; if CY.f=1 halt the system
-;
-;-----  set default video mode
-;
-                mov         al,DEFVIDEOMODE
-                call        RPIVGAVIDMODE               ; set default video mode
-                jc          HALT                        ; if CY.f=1 halt the system
-;
-;-----  output banner
-;
-                mov         si,(BANNER+ROMOFF)          ; banner text
-                xor         bx,bx                       ; page '0' default for text at boot and no attribute color
-PRNBANNER:      lodsb                                   ; get character
-                cmp         al,0                        ; check for end of string
-                je          ENACURS                     ; exit print loop
-                call        RPIVGAPUTTTY                ; print character
-                jmp         PRNBANNER                   ; loop to next character
-;
-;-----  enable cursor
-;
-ENACURS:        mov         si,(RPIVGACURSON+ROMOFF)    ; cursor 'on' command pointer
-                call        RPIVGACMDTX                 ; send
+UARTFAIL:       mcrPRINT    UARTFAILMSG
 ;
 ;   *********************************
 ;   ***   SYSTEM CONFIGURATION    ***
@@ -501,7 +536,7 @@ ENACURS:        mov         si,(RPIVGACURSON+ROMOFF)    ; cursor 'on' command po
 ;
 ;-----  read configuration switches and store settings
 ;
-                mov         ax,BIOSDATASEG
+SYSTEMCONF:     mov         ax,BIOSDATASEG
                 mov         ds,ax                       ; BIOS data segment
 ;
                 in          al,PPIPC                    ; read configuration switches 1..4
@@ -1186,13 +1221,7 @@ INT10:          sti
                 call        INT10IGNORE                 ; call 'ignore' handler if out of range
                 jmp         INT10EXIT
 ;
-%ifdef         INT10DEBUG
-INT10OK:        call        PRINTREGS
-                push        si
-%else
 INT10OK:        push        si
-%endif
-;
                 mov         si,ax                       ; save function and command in SI
                 mov         al,ah
                 xor         ah,ah                       ; AX has function number
@@ -1648,13 +1677,17 @@ INT10F1A:       mov         al,0                        ; respond with 'invalid'
 ; INT 10, all unhandled functions               ;
 ;-----------------------------------------------;
 ;
-INT10IGNORE:    mcrPRINT    INT10DBG                    ; print unhandled function code
+INT10IGNORE:
+%if (DebugConsole && INT10_Debug)
+;
+                mcrDBGPRINT INT10DBG                    ; print unhandled function code
                 xchg        al,ah
                 call        PRINTHEXB
                 xchg        ah,al
-                mcrPRINT    CRLF
+                mcrDBGPRINT CRLF
+                call        DEBUGREGS                   ; print register contents
 ;
-                call        PRINTREGS                   ; print register contents
+%endif
 ;
                 ret
 ;
@@ -2044,28 +2077,7 @@ INT13:          sti                                     ; enable interrupts
                 stc
                 jmp         .int_13_exit
 ;
-%ifdef         INT13DEBUG
-.int_13_ok:
-                call        PRINTREGS
-                push        si
-%else
-.int_13_ok:
-                push        si
-%endif
-;
-%ifdef         SSSPDEBUG
-                mcrPRINT    PRSSSP                      ; print [SS:SP] value
-                push        ax
-                mov         ax,ss
-                call        PRINTHEXW
-                mov         al,(':')
-                call        PRINTCHAR
-                mov         ax,sp
-                call        PRINTHEXW
-                mcrPRINT    CRLF
-                pop         ax
-%endif
-;
+.int_13_ok:     push        si
                 mov         si,ax                       ; save function and command in SI
                 mov         al,ah
                 xor         ah,ah                       ; AX has function number
@@ -2376,13 +2388,17 @@ INT13F20:       mov         ah,INT13BADCMD              ; 01h invalid request
 ;       all ignored function exit here          ;
 ;-----------------------------------------------;
 ;
-INT13IGNORE:    mcrPRINT    INT13DBG                    ; print unhandled function code
+INT13IGNORE:
+%if (DebugConsole && INT13_Debug)
+;
+                mcrDBGPRINT INT13DBG                    ; print unhandled function code
                 xchg        al,ah
                 call        PRINTHEXB
                 xchg        ah,al
-                mcrPRINT    CRLF
+                mcrDBGPRINT CRLF
+                call        DEBUGREGS                   ; print register contents
 ;
-                call        PRINTREGS                   ; print register contents
+%endif
 ;
                 push        ds
                 mov         ax,BIOSDATASEG              ; set pointer to BIOS data area
@@ -2459,13 +2475,14 @@ INT16:          sti                                     ; enable other interrupt
                 cmp         ah,0ffh
                 je          INT16EXT                    ; func. ffh response to extension invoked by DOS6.22 UNDELETE
 ;
-                mcrPRINT    INT16DBG                    ; print unhandled function code
+%if (DebugConsole && INT16_Debug)
+                mcrDBGPRINT INT16DBG                    ; print unhandled function code
                 xchg        al,ah
                 call        PRINTHEXB
                 xchg        ah,al
-                mcrPRINT    CRLF
-;
-                call        PRINTREGS                   ; print register contents
+                mcrDBGPRINT CRLF
+                call        DEBUGREGS                   ; print register contents
+%endif
 ;
 INT16EXIT:      pop         bx
                 pop         ds
@@ -2653,6 +2670,36 @@ INT1C:          iret
 ;   *********************************
 ;   ***    SUPPORT ROUTINES       ***
 ;   *********************************
+;
+;-----------------------------------------------;
+; this routing transmits a single byte through  ;
+; the SIO ch.A USART.                           ;
+; The routine waits until the transmit buffer   ;
+; is clear/ready and then sends the byte        ;
+;                                               ;
+; enrty:                                        ;
+;   AL byte to transmit                         ;
+; exit:                                         ;
+;   All work registers saved                    ;
+;-----------------------------------------------;
+;
+SIOATX:         push        dx
+                push        ax
+;
+                mov         dx,SIOCMDA                  ; setup access to SIOA RR0
+.WaitTxEmpty:   mov         al,00010000b                ; reset external/status interrupt and RR0/WR0 select
+                out         dx,al
+                in          al,dx                       ; read RR0
+                and         al,SIORR0CTSTX
+                xor         al,SIORR0CTSTX              ; test for Tx empty *and* CTS
+                jnz         .WaitTxEmpty                ; if either one of these flags is '0' keep waiting
+                dec         dx
+                dec         dx                          ; point to SIOB data register
+                pop         ax                          ; restore byte to send
+                out         dx,al                       ; send
+;
+                pop         dx
+                ret
 ;
 ;-----------------------------------------------;
 ; this routing transmits a single byte through  ;
@@ -3836,9 +3883,9 @@ CHS2LBA:        push        bx
                 push        bp
                 mov         bp,sp                       ; establish calculator stack
 ;
-%ifdef         INT13DEBUG
-                mcrPRINT    CHSDBG
-                call        PRINTREGS
+%if (DebugConsole && CHS2LBA_Debug)
+                mcrDBGPRINT CHSDBG
+                call        DEBUGREGS
 %endif
 ;
                 call        CHECKDRV                    ; check for valid drive ID, and get [ES:DI] pointer to drive info
@@ -3913,8 +3960,8 @@ CHS2LBA:        push        bx
 ;-----  exit
 ;
 .chs2lba_exit:
-%ifdef         INT13DEBUG
-                call        PRINTREGS
+%if (DebugConsole && CHS2LBA_Debug)
+                call        DEBUGREGS
 %endif
                 mov         sp,bp                       ; restore SP
                 pop         bp
@@ -4140,68 +4187,6 @@ ASCII2SCANCODE: xor         ah,ah
                 pop         si
 NOSCANCODE:     ret
 ;
-;-----------------------------------------------;
-; this routine can be used for debug.           ;
-; when called, it will print contents of all    ;
-; CPU registers.                                ;
-;                                               ;
-; entry:                                        ;
-;   NA                                          ;
-; exit:                                         ;
-;   all register contents print to console      ;
-;   all work registers saved                    ;
-;-----------------------------------------------;
-;
-PRINTREGS:      push        ax
-                push        bx
-                push        cx
-                push        dx
-                push        si
-                push        di
-                push        bp
-                push        es
-                push        ds                          ; save all work registers
-;
-                mcrPRINT    PRAX                        ; print AX
-                call        PRINTHEXW
-                mcrPRINT    PRBX
-                mov         ax,bx                       ; print BX
-                call        PRINTHEXW
-                mcrPRINT    PRCX
-                mov         ax,cx                       ; print CX
-                call        PRINTHEXW
-                mcrPRINT    PRDX
-                mov         ax,dx                       ; print DX
-                call        PRINTHEXW
-                mcrPRINT    PRSI
-                mov         ax,si                       ; print SI
-                call        PRINTHEXW
-                mcrPRINT    PRDI
-                mov         ax,di                       ; print DI
-                call        PRINTHEXW
-                mcrPRINT    PRES
-                mov         ax,es                       ; print ES
-                call        PRINTHEXW
-                mcrPRINT    PRDS
-                mov         ax,ds                       ; print DS
-                call        PRINTHEXW
-                mcrPRINT    PRBP
-                mov         ax,bp                       ; print BP
-                call        PRINTHEXW
-;
-                mcrPRINT    CRLF
-;
-                pop         ds                          ; restore all work registers
-                pop         es
-                pop         bp
-                pop         di
-                pop         si
-                pop         dx
-                pop         cx
-                pop         bx
-                pop         ax
-                ret
-;
 ;   *********************************
 ;   ***       STATIC DATA         ***
 ;   *********************************
@@ -4372,6 +4357,9 @@ BANNER:         db          "XT New Bios, 8088 cpu", CR, LF
 ;
 CRLF:           db          CR, LF, 0                   ; this is still part of the BANNER: ...
 ;
+DEBUGCONONMSG:  db          "debug console active.", CR, LF, 0
+DEBUGCONOFFMSG: db          "debug console not active.", CR, LF, 0
+UARTFAILMSG:    db          "UART1 faild loopback test.", CR, LF, 0
 OKMSG:          db          "ok", CR, LF, 0
 FAILMSG:        db          "fail", CR, LF, 0
 SYSCONFIG:      db          "system configuration: 0x", 0
@@ -4401,23 +4389,6 @@ LBAOFFMSG:      db          "  LBA offset ", 0
 BADVIDMODE:     db          "bad video mode select, IPL aborted, check DIP SW 5 & 6", CR, LF, 0
 BOOTINGMSG:     db          CR, LF, "booting OS ...", CR, LF, 0
 IPLFAILMSG:     db          "OS boot (IPL) failed", CR, LF, 0
-PRAX:           db          CR, LF, " ax=0x", 0
-PRBX:           db          " bx=0x", 0
-PRCX:           db          " cx=0x", 0
-PRDX:           db          " dx=0x", 0
-PRSI:           db          CR, LF, " si=0x", 0
-PRDI:           db          " di=0x", 0
-PRES:           db          " es=0x", 0
-PRDS:           db          " ds=0x", 0
-PRBP:           db          " bp=0x", 0
-PRSSSP:         db          CR, LF, " [SS:SP]=",0
-;
-;-----  text strings for INT function debug
-;
-INT10DBG:       db          CR, LF, "=== int-10 unhandled function 0x", 0
-INT13DBG:       db          CR, LF, "=== int-13 unhandled function 0x", 0
-INT16DBG:       db          CR, LF, "=== int-16 unhandled function 0x", 0
-CHSDBG:         db          CR, LF, "=== CHS2LBA",0
 ;
 ;-----  hard coded commands for RPi VGA
 ;
@@ -4581,6 +4552,161 @@ ASCIILIST:      equ         ($-ASCII2SCAN)                          ; ASCII tabl
 ;-----  sector filled with formatting byte to use for INT13/05 format track
 ;
 EMPTYSECTOR:    times 512 db FORMATFILL                             ; 512 bytes for sector formatting
+;
+;   *********************************
+;   ***    Debug section          ***
+;   *********************************
+;
+%if DebugConsole
+;
+;-----------------------------------------------;
+; this routine can be used for debug.           ;
+; when called, it will print contents of all    ;
+; CPU registers.                                ;
+;                                               ;
+; entry:                                        ;
+;   NA                                          ;
+; exit:                                         ;
+;   all register contents print to console      ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+DEBUGREGS:      push        ax
+                push        bx
+                push        cx
+                push        dx
+                push        si
+                push        di
+                push        bp
+                push        es
+                push        ds                          ; save all work registers
+;
+                mcrDBGPRINT PRAX                        ; print AX
+                call        DEBUGHEXW
+                mcrDBGPRINT PRBX
+                mov         ax,bx                       ; print BX
+                call        DEBUGHEXW
+                mcrDBGPRINT PRCX
+                mov         ax,cx                       ; print CX
+                call        DEBUGHEXW
+                mcrDBGPRINT PRDX
+                mov         ax,dx                       ; print DX
+                call        DEBUGHEXW
+                mcrDBGPRINT PRSI
+                mov         ax,si                       ; print SI
+                call        DEBUGHEXW
+                mcrDBGPRINT PRDI
+                mov         ax,di                       ; print DI
+                call        DEBUGHEXW
+                mcrDBGPRINT PRES
+                mov         ax,es                       ; print ES
+                call        DEBUGHEXW
+                mcrDBGPRINT PRDS
+                mov         ax,ds                       ; print DS
+                call        DEBUGHEXW
+                mcrDBGPRINT PRBP
+                mov         ax,bp                       ; print BP
+                call        DEBUGHEXW
+;
+                mcrDBGPRINT CRLF
+;
+                pop         ds                          ; restore all work registers
+                pop         es
+                pop         bp
+                pop         di
+                pop         si
+                pop         dx
+                pop         cx
+                pop         bx
+                pop         ax
+                ret
+;
+;-----------------------------------------------;
+; this routing converts a number stored in AX   ;
+; into ASCII and prints its hex form to the     ;
+; debug console.                                      ;
+; There are three entry point in this utility:  ;
+;  (1) PRINTHEXW - print a word from AX         ;
+;  (2) PRINTHEXB - print a byte from AL         ;
+;  (3) HEXDIGIT - print low nibble from AL      ;
+;                                               ;
+; enrty:                                        ;
+;   AX number to convert and print              ;
+; exit:                                         ;
+;   all work registers saved                    ;
+;-----------------------------------------------;
+;
+DEBUGHEXW:      push        ax                          ; save word
+                mov         al,ah                       ; setup AL for high byte
+                call        .PrintByte                  ; print high byte
+                pop         ax                          ; setup AL for low byte
+                call        .PrintByte                  ; print low byte
+                ret
+;
+.PrintByte:     push        cx                          ; save CX
+                push        ax
+                mov         cl,4
+                shr         al,cl                       ; setup high nibble in AL
+                call        .PrintDigit                 ; pring high nibble
+                pop         ax                          ; setup low nibble in AL
+                call        .PrintDigit                 ; print low nibble
+                pop         cx
+                ret
+;
+.PrintDigit:    push        ax
+                and         al,0fh                      ; isolate low nibble
+                cmp         al,9                        ; check for '0'-'9' or 'a'-'f'
+                jbe         .DecDigit                   ; if '0'-'9' treat as number
+                add         al,('a'-10)                 ; if 'a'-'f' shift to lower case alpha ASCII
+                jmp         .OutDigit
+.DecDigit:      add         al,('0')                    ; shift to numbers' ASCII
+;
+.OutDigit:      call        SIOATX                      ; output character
+                pop         ax
+                ret
+;
+;-----------------------------------------------;
+; this routing transmits a string to UART.      ;
+; The string must be '0' terminated.            ;
+;                                               ;
+; enrty:                                        ;
+;   SI offset to string                         ;
+;   DS segment address of string                ;
+; exit:                                         ;
+;   all work registers preserved                ;
+;-----------------------------------------------;
+;
+DEBUGSTZ:       push        ax
+                push        bx
+                push        si                          ; save work registers
+                xor         bx,bx                       ; default page 0 and no color
+.CharLoop:      lodsb                                   ; get character from string
+                cmp         al,0                        ; is it '0' ('0' signals end of string)?
+                je          .Exit                       ; yes, then done
+                call        SIOATX                      ; no, transmit the character byte
+                jmp         .CharLoop                   ; loop for next character
+.Exit:          pop         si                          ; restore registers and return
+                pop         bx
+                pop         ax
+                ret
+;
+;-----  text strings for INT function debug
+;
+INT10DBG:       db          CR, LF, "=== int-10 unhandled function 0x", 0
+INT13DBG:       db          CR, LF, "=== int-13 unhandled function 0x", 0
+INT16DBG:       db          CR, LF, "=== int-16 unhandled function 0x", 0
+CHSDBG:         db          CR, LF, "=== CHS2LBA",0
+PRAX:           db          CR, LF, " ax=0x", 0
+PRBX:           db          " bx=0x", 0
+PRCX:           db          " cx=0x", 0
+PRDX:           db          " dx=0x", 0
+PRSI:           db          CR, LF, " si=0x", 0
+PRDI:           db          " di=0x", 0
+PRES:           db          " es=0x", 0
+PRDS:           db          " ds=0x", 0
+PRBP:           db          " bp=0x", 0
+;
+%endif
 ;
 ;   *********************************
 ;   *** RESET VECTOR AND EPILOG   ***

@@ -28,7 +28,7 @@ FORMATFILL:     equ         0f6h                        ; formatted sector fill 
 EQUIPMENTMASK:  equ         1111111000110011b           ; 'AND' mask for setting hard coded equipment bits
 EQUIPMENT:      equ         0000000001001100b           ; hard coded 'OR' mask for equipment bits
 ;                           ||||||||||||||||
-;                           |||||||||||||||+----------------- 9'off')1=auto-IPL or ('on')0=mon88 (was: IPL diskette installed)
+;                           |||||||||||||||+----------------- ('off')1=auto-IPL or ('on')0=mon88 (was: IPL diskette installed)
 ;                           ||||||||||||||+------------------ no co-processor (get from DIP SW?)
 ;                           ||||||||||||++------------------- normal RAM board
 ;                           ||||||||||++--------------------- initial video mode (get from DIP SW5/6)
@@ -85,14 +85,18 @@ XHDDWRATONCE:   equ         64                          ; number of 512B blocks 
                 pop         ax
 %endmacro
 ;
-;======================================
-; default startup CRT properties
-;======================================
-;
-DEFBAUDSIOA:    equ         BAUD9600
-DEFBAUDSIOB:    equ         BAUD38400
-DEFVIDEOMODE:   equ         9                   ; BIOS POST goes into special mode 9 for mon88
-;                                                 for OS boot, video mode is set based on DIP SW.5 & 6 setting
+%macro          mcrDBGPRINT 1
+                push        ax
+                push        si
+                push        ds
+                mov         ax,cs
+                mov         ds,ax
+                mov         si,(%1+ROMOFF)      ; get message string address
+                call        DEBUGSTZ            ; and print
+                pop         ds
+                pop         si
+                pop         ax
+%endmacro
 ;
 ;======================================
 ; IO port definitions

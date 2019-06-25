@@ -27,15 +27,16 @@ Cross reference of BIOS POST steps:
 | 254  |              | Determine memory size and test first 2K     |
 | 296  |              | First 2K ok and setup STACK                 |
 | 308  |              | Setup interrupt controller and vectors      |
-| 356  |              | SIO-ch.B setup and RPi rendezvous           |
-| 405  |              | UART1 setup and test                        |
-| 471  |              | Set RPI VGA card                            |
-| 504  |              | Setup system configuration                  |
-| 552  |              | RAM test                                    |
-| 593  |              | setup keyboard buffer, time of day, EI, NMI |
-| 637  |              | IDE setup                                   |
-| 807  |  IPLBOOT     | Boot OS                                     |
-| 845  |  MONITOR     | Monitor mode                                |
+| 357  |              | SIO-ch.B setup and RPi rendezvous           |
+| 406  |              | Set RPI VGA card                            |
+| 439  |              | SIO-ch.A setup and RPi rendezvous           |
+| 469  |              | UART1 setup and test                        |
+| 535  |              | Setup system configuration                  |
+| 583  |              | RAM test                                    |
+| 624  |              | setup keyboard buffer, time of day, EI, NMI |
+| 668  |              | IDE setup                                   |
+| 838  |  IPLBOOT     | Boot OS                                     |
+| 876  |  MONITOR     | Monitor mode                                |
 
 ## INT 10h register mapping
 Rssource [BIOS 10h calls](http://stanislavs.org/helppc/int_10.html)
