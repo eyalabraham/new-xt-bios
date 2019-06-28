@@ -6,8 +6,8 @@ The hardware added on the system board are:
 - Hardware includes Z80-SIO USART (on channel B) + RPi to replace CRT.
 - Reconstructed keyboard interface for PS/2 protocol.
 - COM1 with UART 16550
-- COM2 based Z80-SIO channel A, possible "hide" this UART and use it as a SLIP network interface.
-- IDE-8255 interface for Cf card.
+- COM2 based Z80-SIO channel A, optionally "hide" this USART and use it as a SLIP network interface or a serial debug console.
+- IDE-8255 interface for CF card.
 - BIOS with required POST and services to boot MS-DOS 3.31, modified MINIX 2.0
 - ROM monitor functions
 
@@ -20,23 +20,32 @@ Cross reference of BIOS POST steps:
 
 | Line |  Label       | Step                                        |
 |------|--------------|---------------------------------------------|
-| 58   |              | CPU check                                   |
-| 212  |              | PPI setup                                   |
-| 132  |              | TIMER setup and test                        |
-| 185  |              | DMA controller test and refresh setup       |
-| 254  |              | Determine memory size and test first 2K     |
-| 296  |              | First 2K ok and setup STACK                 |
-| 308  |              | Setup interrupt controller and vectors      |
+| 59   |              | CPU check                                   |
+| 122  |              | PPI setup                                   |
+| 133  |              | TIMER setup and test                        |
+| 186  |              | DMA controller test and refresh setup       |
+| 255  |              | Determine memory size and test first 2K     |
+| 297  |              | First 2K ok and setup STACK                 |
+| 309  |              | Setup interrupt controller and vectors      |
 | 357  |              | SIO-ch.B setup and RPi rendezvous           |
 | 406  |              | Set RPI VGA card                            |
-| 439  |              | SIO-ch.A setup and RPi rendezvous           |
-| 469  |              | UART1 setup and test                        |
-| 535  |              | Setup system configuration                  |
-| 583  |              | RAM test                                    |
-| 624  |              | setup keyboard buffer, time of day, EI, NMI |
-| 668  |              | IDE setup                                   |
-| 838  |  IPLBOOT     | Boot OS                                     |
-| 876  |  MONITOR     | Monitor mode                                |
+| 433  |              | SIO-ch.A setup and RPi rendezvous           |
+| 470  |              | UART1 setup and test                        |
+| 539  |              | Setup system configuration                  |
+| 587  |              | RAM test                                    |
+| 628  |              | setup keyboard buffer, time of day, EI, NMI |
+| 678  |              | IDE setup                                   |
+| 848  |  IPLBOOT     | Boot OS                                     |
+| 886  |  MONITOR     | Monitor mode                                |
+
+## Video emulation
+Video display is emulated by a Raspberry Pi Zero (RPi). The RPi runs an emulation program that emulates CGA, MDA and Heculer cards on thr RPI's frame buffer. BIOS video commands are translated and exchanged with the emulation code via serial link through a Z80-SIO dual-USART (channel B). Emultation commands are described in iodef.asm.
+
+## Keyboard
+A PS/2 keyboard is connected throigh an AVR ATmega328p, which controlls the PS/2 keyboard as well as translates PS/2 scan codes into PC-XT codes. The AVR connects directly into the motherboard, **replaces** the 74LS322 shift register, and inputs the codes directly into the system's 8255 PPI. This setup avoid the need to translate the scan codes into a serial format expected by the PC-XT.
+
+## Floppy drives and hard drive emulation
+an IDE interface implemented with a 8255 PPI is used to interface with a CF card. The BIOS emulates two floppy drives and a hard drive on a single CF card. Floppy A can have up to four images selectable via DIP switches 7 and 8, which allows user to emulate floppy disk changes. The images of the floppies are saved on a PC, and writen to the CF card into specific locations using Linux 'dd'.
 
 ## INT 10h register mapping
 Rssource [BIOS 10h calls](http://stanislavs.org/helppc/int_10.html)

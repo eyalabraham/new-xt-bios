@@ -428,7 +428,7 @@ WAITDISPLAY:    mov         al,00010000b                ; reset external/status 
 ;   ***  UART2 ch.A  ***
 ;   ********************
 ;
-;-----  initialize Z80-SIO channel B and connect with RPi diplay board
+;-----  initialize Z80-SIO channel A, optional debug console
 ;
                 mov         ax,BIOSDATASEG
                 mov         ds,ax                       ; BIOS data segment
@@ -543,7 +543,7 @@ SYSTEMCONF:     mov         ax,BIOSDATASEG
                 and         al,00001111b                ; isolate switch bits
                 mov         ah,al
                 mov         al,PPIPBINIT
-                or          al,00001000b                ; enable other back of switches
+                or          al,00001000b                ; enable other set of switches
                 out         PPIPB,al
                 nop
                 in          al,PPIPC                    ; read switches 5..8
@@ -646,14 +646,20 @@ RAMTESTPASS:    mov         ax,bdKEYBUF                 ; buffer start offset in
                 out         IMR,al
                 sti                                     ; enable processor interrupts
 ;
+;-----  enable keyboard
+;
+                in          al,PPIPB                    ; signal 'enable' to keyboard controller
+                and         al,~PPIPBKBDBUSY
+                out         PPIPB,al
+;
 ;-----  enable parity checking and NMI (IBM BIOS does this just before IPL pg.5-94/242 line 1158)
 ;
-                mov         dx,PPIPB
-                in          al,dx                       ; get current state
+                in          al,PPIPB                    ; get current state
                 or          al,00010000b                ; disable parity checking and reset if any errors exist
-                out         dx,al
+                out         PPIPB,al
+                nop
                 and         al,11101111b                ; re-enable parity checking
-                out         dx,al
+                out         PPIPB,al
                 mov         al,NMIENA                   ; enable NMI
                 out         NMIMASK,al
 ;
@@ -992,9 +998,53 @@ DPNOCHANGE:     mov         al,EOI                      ; Send end-of-interrupt 
                 pop         ds
                 iret
 ;
-;----- IND 0B (IRQ3) ---------------------------;
-; COM2 interrupt serive.                        ;
-; This routine will support Z80-SIO channel A   ;
+;----- INT 09 (IRQ1) ---------------------------;
+; Keyboard controller interrupt input serive.   ;
+; The service will accept a scan code byte      ;
+; from the keyboard interface, match an ASCII   ;
+; code to the scane code, and place then in the ;
+; keyboard buffer.                              ;
+; The service will also update BIOS flags       ;
+; for shift, Ctrl, and Alt keys                 ;
+;                                               ;
+; entry:                                        ;
+;   NA                                          ;
+; exit:                                         ;
+;   All work registers are preserved            ;
+;-----------------------------------------------;
+;
+INT09:          sti
+                push        ax
+;
+                in          al,PPIPB                    ; signal 'busy' to keyboard controller
+                or          al,PPIPBKBDBUSY
+                out         PPIPB,al
+;
+                in          al,PPIPA                    ; read scan code from controller
+;
+;-----  process scan code
+;
+%if (DebugConsole && INT16_Debug)
+                mcrDBGPRINT KBDDBG
+                call        DEBUGHEXB
+                mcrDBGPRINT CRLF
+%endif
+;
+;-----  complete the interrupt service
+;
+                mov         al,EOI                      ; Send end-of-interrupt code
+                out         OCW2,al
+;
+                in          al,PPIPB                    ; signal 'enable' to keyboard controller
+                and         al,~PPIPBKBDBUSY
+                out         PPIPB,al
+;
+                pop         ax
+                iret
+;
+;----- INT 0B (IRQ3) ---------------------------;
+; COM2 interrupt serice.                        ;
+; This service will support Z80-SIO channel A   ;
 ; interrupt.                                    ;
 ;                                               ;
 ; entry:                                        ;
@@ -1010,12 +1060,9 @@ INT0B:          push        ax
                 iret
 ;
 ;----- INT 0C (IRQ4) ---------------------------;
-; UART input (Rx) service interrupt routine     ;
-; this routine is hooked in place of the video  ;
-; IRQ2 just because it was available on the     ;
-; expansion slot and there is no video card     ;
-; installed. the routinve will accept a byte    ;
-; from the UART and place it in the keyboard    ;
+; UART input (Rx) service interrupt routine.    ;
+; The service will accept a byte  from the     ;
+; UART and place it in the keyboard             ;
 ; buffer.                                       ;
 ;                                               ;
 ; entry:                                        ;
@@ -1074,7 +1121,7 @@ INT0C:          sti                                     ; enable interrupts
                 iret
 ;
 ;----- IND 0D (IRQ5) ---------------------------;
-; IDE drive service interrupt routine           ;
+; IDE drive service interrupt service           ;
 ; is a place holder. IDE support will use       ;
 ; polling and not interrupt.                    ;
 ;                                               ;
@@ -4207,7 +4254,7 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (IGNORE+ROMOFF)             ;       06h Reserved
                 dw          (IGNORE+ROMOFF)             ;       07h Reserved
                 dw          (INT08+ROMOFF)              ;   y   08h (IRQ0) Timer tick                   [timer tick]
-                dw          (IGNORE+ROMOFF)             ;       09h (IRQ1) Keyboard attention           [masked]
+                dw          (INT09+ROMOFF)              ;   y   09h (IRQ1) Keyboard attention           [keyboard controller]
                 dw          (IGNORE+ROMOFF)             ;       0Ah (IRQ2) Video (5-49/197 line 278)    [masked]
                 dw          (INT0B+ROMOFF)              ;   n   0Bh (IRQ3) COM2 serial i/o              [SIO Ch.A -> masked]
                 dw          (INT0C+ROMOFF)              ;   y   0Ch (IRQ4) COM1 serial i/o              [UART console input (temp)]
@@ -4628,7 +4675,6 @@ DEBUGREGS:      push        ax
 ; There are three entry point in this utility:  ;
 ;  (1) PRINTHEXW - print a word from AX         ;
 ;  (2) PRINTHEXB - print a byte from AL         ;
-;  (3) HEXDIGIT - print low nibble from AL      ;
 ;                                               ;
 ; enrty:                                        ;
 ;   AX number to convert and print              ;
@@ -4638,12 +4684,12 @@ DEBUGREGS:      push        ax
 ;
 DEBUGHEXW:      push        ax                          ; save word
                 mov         al,ah                       ; setup AL for high byte
-                call        .PrintByte                  ; print high byte
+                call        DEBUGHEXB                   ; print high byte
                 pop         ax                          ; setup AL for low byte
-                call        .PrintByte                  ; print low byte
+                call        DEBUGHEXB                   ; print low byte
                 ret
 ;
-.PrintByte:     push        cx                          ; save CX
+DEBUGHEXB:      push        cx                          ; save CX
                 push        ax
                 mov         cl,4
                 shr         al,cl                       ; setup high nibble in AL
@@ -4695,6 +4741,7 @@ DEBUGSTZ:       push        ax
 INT10DBG:       db          CR, LF, "=== int-10 unhandled function 0x", 0
 INT13DBG:       db          CR, LF, "=== int-13 unhandled function 0x", 0
 INT16DBG:       db          CR, LF, "=== int-16 unhandled function 0x", 0
+KBDDBG:         db          "scan code 0x", 0
 CHSDBG:         db          CR, LF, "=== CHS2LBA",0
 PRAX:           db          CR, LF, " ax=0x", 0
 PRBX:           db          " bx=0x", 0

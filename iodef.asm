@@ -185,7 +185,7 @@ IRR:            equ         020h                ; interrupt request register
 ISR:            equ         020h                ; interrupt in service register
 IMR:            equ         021h                ; interrupt mask register
 ;
-IMRINIT:        equ         11101110b
+IMRINIT:        equ         11101100b
 ;                           ||||||||
 ;                           |||||||+--- b0.. (IRQ0) Timer tick
 ;                           ||||||+---- b1.. (IRQ1) Keyboard attention
@@ -292,7 +292,9 @@ PPIPBINIT:      equ         10110001b           ; PPI Port B initialization
 ;                           |||+------- b4..(-) Enable RAM Parity Check
 ;                           ||+-------- b5..(-) Enable I/O Channel Check
 ;                           |+--------- b6..(free) (-) Hold Keyboard Clock Low
-;                           +---------- b7..(free) (-) Enable Keyboard or (+) Clear Keyboard
+;                           +---------- b7..(1) Keyboard Busy, (0) Keyboard Ready
+;
+PPIPBKBDBUSY:   equ         10000000b
 ;
 ;                       7.6.5.4.3.2.1.0         ; PPI Port C equipment configuration switches
 ;                       | | | | | | | |
