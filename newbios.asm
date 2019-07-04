@@ -1015,6 +1015,11 @@ DPNOCHANGE:     mov         al,EOI                      ; Send end-of-interrupt 
 ;
 INT09:          sti
                 push        ax
+                push        bx
+                push        cx
+                push        si
+                push        ds
+                push        es
 ;
                 in          al,PPIPB                    ; signal 'busy' to keyboard controller
                 or          al,PPIPBKBDBUSY
@@ -1022,16 +1027,207 @@ INT09:          sti
 ;
                 in          al,PPIPA                    ; read scan code from controller
 ;
-;-----  process scan code
-;
-%if (DebugConsole && INT16_Debug)
-                mcrDBGPRINT KBDDBG
+%if (DebugConsole && INT09_Debug)
+                mcrDBGPRINT KBDDBG1
                 call        DEBUGHEXB
                 mcrDBGPRINT CRLF
 %endif
 ;
-;-----  complete the interrupt service
+                cmp         al,0ffh                     ; check for keyboard error
+                je          .BeepExit                   ; beep and exit
 ;
+;-----  shift keys: Shift, Alt, Ctrl
+;
+                mov         bx,BIOSDATASEG
+                mov         ds,bx
+;
+                mov         ah,al                       ; save scan code
+                and         al,~KBD_BREAK_CODE          ; remove break bit
+;
+.TestRShift:    cmp         al,KBD_RSHIFT               ; start testing for shift/alt/ctrl cases
+                jne         .TestLShift
+                test        ah,KBD_BREAK_CODE           ; check if this is a break
+                jnz         .RShiftBreak
+                or          byte [ds:bdSHIFT],KBD_FLAG_RSHFT ; turn 'o'n on make code
+                jmp         .Exit
+.RShiftBreak:   and         byte [ds:bdSHIFT],~KBD_FLAG_RSHFT ; turn 'off' on break code
+                jmp         .Exit
+;
+.TestLShift:    cmp         al,KBD_LSHIFT
+                jne         .TestCtrl
+                test        ah,KBD_BREAK_CODE
+                jnz         .LShiftBreak
+                or          byte [ds:bdSHIFT],KBD_FLAG_LSHFT
+                jmp         .Exit
+.LShiftBreak:   and         byte [ds:bdSHIFT],~KBD_FLAG_LSHFT
+                jmp         .Exit
+;
+.TestCtrl:      cmp         al,KBD_CTRL
+                jne         .TestAlt
+                test        ah,KBD_BREAK_CODE
+                jnz         .CtrlBreak
+                or          byte [ds:bdSHIFT],KBD_FLAG_CTRL
+                jmp         .Exit
+.CtrlBreak:     and         byte [ds:bdSHIFT],~KBD_FLAG_CTRL
+                jmp         .Exit
+;
+.TestAlt:       cmp         al,KBD_ALT
+                jne         .TestCapsLck
+                test        ah,KBD_BREAK_CODE
+                jnz         .AltBreak
+                or          byte [ds:bdSHIFT],KBD_FLAG_ALT
+                jmp         .Exit
+.AltBreak:      and         byte [ds:bdSHIFT],~KBD_FLAG_ALT
+                jmp         .Exit
+;
+;-----  lock keys: NumLock, CapsLock, ScrollLock, Insert
+;
+.TestCapsLck:   cmp         al,KBD_CAPSLOCK             ; Caps Num and Scroll lock are tocggles
+                jne         .TestNumLck                 ; check for these scan codes
+                test        ah,KBD_BREAK_CODE           ; don't care about break code
+                jnz         .Exit
+                xor         byte [ds:bdSHIFT],KBD_FLAG_CPLCK ; only toggle on a make code
+                jmp         .Exit
+;
+.TestNumLck:    cmp         al,KBD_NUMLOCK
+                jne         .TestScrLck
+                test        ah,KBD_BREAK_CODE
+                jnz         .Exit
+                xor         byte [ds:bdSHIFT],KBD_FLAG_NMLCK
+                jmp         .Exit
+;
+.TestScrLck:    cmp         al,KBD_SCROLLOCK
+                jne         .KeyPad
+                test        ah,KBD_BREAK_CODE
+                jnz         .Exit
+                xor         byte [ds:bdSHIFT],KBD_FLAG_SCLCK
+                jmp         .Exit
+;
+;          *** don't care about break codes from this point on ***
+;
+;-----  key pad if NumLock is on
+;
+.KeyPad:        test        ah,KBD_BREAK_CODE           ; no need to process break codes
+                jnz         .Exit
+;
+                cmp         al,KBD_KEYPAD               ; check if the scan code is in key pad range
+                jb          .SpecialFunc                ; no, proceed with special functions
+;
+                test        byte [ds:bdSHIFT],KBD_FLAG_NMLCK ; check if Num Lock is 'on'
+                jnz         .KeyPadXlate                ; if it is, translate key pad to num-keys
+;
+.InsertKey:     cmp         al,KBD_INSERT               ; special hanlding for Insert
+                jne         .DelKey                     ; not insert, check 'Delete'
+                xor         byte [ds:bdSHIFT],KBD_FLAG_INS ; toggle 'insert' flag
+                jmp         .AlphaCodes                 ; process as alpha codes from code tables
+;
+.DelKey:        cmp         al,KBD_DELETE               ; special hanlding for Delete
+                je          .SpecialFunc                ; if it is Delete, first check for Ctrl-Alt-Del
+                jmp         .AlphaCodes                 ; process as alpha codes from code tables
+;
+.KeyPadXlate:   mov         bx,cs                       ; key pad translation if Num Lock is 'on'
+                mov         es,bx                       ; ES with tables' segment
+                mov         si,(KEYPADNUMLOCK+ROMOFF)   ; SI base of translation table
+                sub         al,KBD_KEYPAD
+                jb          .BeepExit                   ; something is wrong with the code!
+                jmp         .StoreKey                   ; store in keyboard buffer
+;
+;-----  handle special functions: Ctrl-Alt-Del, Ctrl-Break, etc.
+;
+.SpecialFunc:   mov         ah,[ds:bdSHIFT]             ; get shift status
+                and         ah,(KBD_FLAG_CTRL+KBD_FLAG_ALT) ; isolate Ctrl+Alt
+                cmp         ah,(KBD_FLAG_CTRL+KBD_FLAG_ALT) ; are Ctrl+Alt depressed
+                jne         .Break                      ; no, check Ctrl-Break
+                cmp         al,KBD_DELETE               ; we have Ctrl+Alt, is Delete pressed?
+                jne         .Exit                       ; no Delete, exist, no handleing for other Ctrl+Alt
+                mov         word [ds:bdBOOTFLAG],1234h  ; flag warm start
+                jmp         WARM                        ; restart system
+;
+.Break:         test        byte [ds:bdSHIFT],KBD_CTRL
+                jne         .AlphaCodes                 ; Ctrl not perssed, process codes below
+                cmp         al,KBD_BREAK                ; Ctrl is pressed, is this a Break key?
+                jne         .AlphaCodes                 ; not Break, so move on
+                mov         bx,[ds:bdKEYBUFSTART]       ; reset keyboard buffer
+                mov         [ds:bdKEYBUFHEAD],bx
+                mov         [ds:bdKEYBUFTAIL],bx
+                mov         byte [ds:bdBIOSBREAK],80h   ; signal Break
+                int         1bh                         ; initiate Ctrl-Break handler
+                sub         ax,ax                       ; dummy character
+                jmp         .FillBuffer                 ; jump to store in buffer, then exit
+;
+;-----  handle alpha numeric and functions key
+;
+.AlphaCodes:    cmp         al,KBD_MAX_CODE             ; range check scan code
+                ja          .BeepExit                   ; something is wrong with the code!
+;
+                mov         bx,cs
+                mov         es,bx                       ; ES with tables' segment
+                mov         si,(ASCIINOSHIFT+ROMOFF)    ; SI initialized for no-shift table
+;
+.CheckAlt:      test        byte [ds:bdSHIFT],KBD_FLAG_ALT ; Alt? this is first priority if other are pressed too
+                jz          .CheckCtrl
+                mov         si,(ASCIIALT+ROMOFF)
+                jmp         .GetAsciiScan
+;
+.CheckCtrl:     test        byte [ds:bdSHIFT],KBD_FLAG_CTRL ; Ctrl? this is second priority if other are pressed too
+                jz          .CheckShift
+                mov         si,(ASCIICTRL+ROMOFF)
+                jmp         .GetAsciiScan
+;
+.CheckShift:    test        byte [ds:bdSHIFT],(KBD_FLAG_LSHFT+KBD_FLAG_RSHFT) ; shifts? this is the third priority shift type
+                jz          .GetAsciiScan
+                mov         si,(ASCIISHIFT+ROMOFF)      ; uppercase / shift table
+;
+.GetAsciiScan:  dec         al                          ; adjust for 0-based table index
+.StoreKey:      xor         ah,ah
+                shl         ax,1                        ; AX is index into keypad translation table
+                add         si,ax                       ; SI is index to ASCII/Scan code pair
+                mov         ax,[es:si]                  ; get the ASCII/Scan code pair
+                cmp         ax,0
+                je          .Exit                       ; only store actionable ASCII/scan code pair
+;
+.CapsLock:      test        byte [ds:bdSHIFT],KBD_FLAG_CPLCK ; check caps lock if we need to change letters' case
+                jz          .FillBuffer
+                mov         bl,al                       ; get the ascii code
+                and         bl,0dfh                     ; this will convert any letters to "upper case"
+                cmp         bl,"A"                      ; chech range 'A to Z'
+                jb          .FillBuffer                 ; ascii was less than 'a' or 'A', caps lock has no effect
+                cmp         bl,"Z"                      ; check for ascii above 'z' or 'Z'
+                ja          .FillBuffer                 ; ascii was over 'z' or Z', caps lock has no effect
+;                                                         at this point we know that caps-lock is 'on' and we have a letter
+                xor         al,20h                      ; convert uppoer case to lower and vice versa
+;                                                         covert to upper case for Caps Lock, or negate it if shift is 'on' too
+;
+.FillBuffer:
+;
+%if (DebugConsole && INT09_Debug)
+                mcrDBGPRINT KBDDBG2
+                call        DEBUGHEXW
+                mcrDBGPRINT CRLF
+%endif
+;
+                mov         bx,[ds:bdKEYBUFTAIL]        ; get buffer write pointer
+                mov         si,bx                       ; into SI
+                inc         bx
+                inc         bx                          ; next position
+                cmp         bx,[ds:bdKEYBUFEND]         ; is this end of buffer?
+                jne         .CirBuffNotEnd              ;  no, skip
+                mov         bx,[ds:bdKEYBUFSTART]       ;  yes, reset write pointer (circular buffer)
+.CirBuffNotEnd: cmp         bx,[ds:bdKEYBUFHEAD]        ; is write pointer same as read pointer?
+                jne         .CirBuffNotOvr              ;  no, skip as there is no overrun
+                jmp         .BeepExit                   ; buffer full
+.CirBuffNotOvr: mov         [ds:si],ax                  ; store in buffer
+                mov         [ds:bdKEYBUFTAIL],bx        ; update write pointer
+;
+               jmp         .Exit
+;
+;-----  exit service routine
+;
+.BeepExit:      mov         cx,750                      ; 500Hz beep
+                mov         bl,16                       ; 1/4 sec duration
+                call        BEEP                        ; beep speaker
+;
+.Exit:          cli
                 mov         al,EOI                      ; Send end-of-interrupt code
                 out         OCW2,al
 ;
@@ -1039,6 +1235,11 @@ INT09:          sti
                 and         al,~PPIPBKBDBUSY
                 out         PPIPB,al
 ;
+                pop         es
+                pop         ds
+                pop         si
+                pop         cx
+                pop         bx
                 pop         ax
                 iret
 ;
@@ -2513,8 +2714,8 @@ INT16:          sti                                     ; enable other interrupt
                 je          INT16STATUS                 ; func. 01h get keyboard buffer status
                 cmp         ah,02h
                 je          INT16SHIFT                  ; func. 02h get shift key status
-;               cmp         ah,05h
-;               je          INT16WRITE                  ; func. 05h write to keyboard buffer
+                cmp         ah,05h
+                je          INT16WRITE                  ; func. 05h write to keyboard buffer
                 cmp         ah,10h
                 je          INT16READ                   ; func. 10h read keyboard buffer
                 cmp         ah,11h
@@ -2543,9 +2744,9 @@ INT16READ:      cli                                     ; disable interrupts whi
                 jne         READBUFFER                  ; character to read from buffer
                 sti                                     ; reenable interrupts
                 jmp         INT16READ                   ; loop until something is typed
-READBUFFER:     mov         al,[ds:bx]                  ; get the ASCII code into AL
-                call        ASCII2SCANCODE              ; get scan code from ASCII into AH
+READBUFFER:     mov         ax,[ds:bx]                  ; get the Scan code and ASCII into AX
                 inc         bx                          ; point to next buffer position
+                inc         bx
                 mov         [ds:bdKEYBUFHEAD],bx        ; save new buffer head position
                 cmp         bx,[ds:bdKEYBUFEND]         ; is buffer end/overflow?
                 jne         INT16EXIT                   ; no, done and exit
@@ -2559,9 +2760,8 @@ INT16STATUS:    cli                                     ; disable interrupts whi
                 mov         bx,[ds:bdKEYBUFHEAD]        ; get buffer head pointer
                 cmp         bx,[ds:bdKEYBUFTAIL]        ; compare to buffer tail pointer, if equal then nothing there (Z.f=1)
                 pushf                                   ; save the flags (Z.f)
-                mov         al,[ds:bx]                  ; get the ASCII code of last character into AL
+                mov         ax,[ds:bx]                  ; get the Scan Code and ASCII of last character into AX
                 sti                                     ; reenable interrupts
-                call        ASCII2SCANCODE              ; get scan code from ASCII into AH
                 popf                                    ; restore flags (and Z.f)
                 pop         bx                          ; restore
                 pop         ds                          ; registers
@@ -2573,14 +2773,16 @@ INT16SHIFT:     mov         al,[ds:bdSHIFT]
                 jmp         INT16EXIT
 ;
 ;-----  write character into keyboard buffer
-; @@- implemented to be able to use 'vim' editor
+; @@- implemented to be able to use 'vim' editor on minix
 ;
-INT16WRITE:     push        di
+INT16WRITE:     push        ax
+                push        di
                 push        ds
                 mov         ax,BIOSDATASEG
                 mov         ds,ax                       ; set DS to BIOS data structure segment
                 mov         ax,[ds:bdKEYBUFTAIL]        ; get buffer write pointer
                 mov         di,ax                       ; save it
+                inc         ax
                 inc         ax                          ; next position
                 cmp         ax,[ds:bdKEYBUFEND]         ; is this end of buffer?
                 jne         INT16WRNOTEND               ;  no, skip
@@ -2589,11 +2791,12 @@ INT16WRNOTEND:  cmp         ax,[ds:bdKEYBUFHEAD]        ; is write pointer same 
                 jne         INT16WRNOOVR                ;  no, skip as there is no overrun
                 mov         al,01h                      ; signal buffer full
                 jmp         INT16WREXIT
-INT16WRNOOVR:   mov         [ds:di],cl                  ; store in buffer
+INT16WRNOOVR:   mov         [ds:di],cx                  ; store in buffer
                 mov         [ds:bdKEYBUFTAIL],ax        ; update write pointer
                 xor         al,al                       ; signal success
 INT16WREXIT:    pop         ds
                 pop         di
+                pop         ax
                 jmp         INT16EXIT
 ;
 ;-----  KBUF extensions - ADD KEY TO TAIL OF KEYBOARD BUFFER
@@ -2704,6 +2907,12 @@ INT1A01:        mov         [ds:bdTIMEHI],cx            ; set time
 INT1ADONE:      sti                                     ; reenable interrupts and return
                 pop         ds
                 iret
+;
+;----- INT 1B ----------------------------------;
+; place holder for Ctrl-Break                   ;
+;-----------------------------------------------;
+;
+INT1B:          iret
 ;
 ;----- INT 1C ----------------------------------;
 ; place holder for a user interrupt service     ;
@@ -4208,31 +4417,6 @@ WAITLOOP:       cmp         dx,[ds:bdTIMEHI]            ; have we reached end of
                 pop         bx
                 pop         ax
                 ret
-
-;
-;-----------------------------------------------;
-; this routine will use the ASCII code of a     ;
-; character in AL to look up and return its     ;
-; keyboard scan code in AH.                     ;
-; this is used by INT 16 to fake keyboard scan  ;
-; codes.                                        ;
-;                                               ;
-; entry:                                        ;
-;   AL ASCII code of character                  ;
-; exit:                                         ;
-;   AH keyboard scan code, AL preserved         ;
-;   all other work registers saved              ;
-;-----------------------------------------------;
-;
-ASCII2SCANCODE: xor         ah,ah
-                cmp         al,ASCIILIST                ; check if ASCII code is out of table range
-                jae         NOSCANCODE                  ; yes, exit with scan code AH=0
-                push        si
-                xor         ah,ah                       ; AX is index into scan code look up table
-                mov         si,ax                       ; SI now has index too
-                mov         ah,[cs:si+ASCII2SCAN+ROMOFF]; get scan code byte
-                pop         si
-NOSCANCODE:     ret
 ;
 ;   *********************************
 ;   ***       STATIC DATA         ***
@@ -4243,7 +4427,7 @@ NOSCANCODE:     ret
 MEMTESTRET1:    dw          (MEM1KCHECK+ROMOFF)         ; first 1K memory test
 MEMTESTRET2:    dw          (MEM2KCHECK+ROMOFF)         ; second 1K memory test
 ;
-;-----  implemented interrupt service routines:    ^^^
+;-----  implemented interrupt service routines:            ^^^
 ; @@- 5-107/255 line 2585
 VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by zero
                 dw          (IGNORE+ROMOFF)             ;       01h Single step
@@ -4257,7 +4441,7 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (INT09+ROMOFF)              ;   y   09h (IRQ1) Keyboard attention           [keyboard controller]
                 dw          (IGNORE+ROMOFF)             ;       0Ah (IRQ2) Video (5-49/197 line 278)    [masked]
                 dw          (INT0B+ROMOFF)              ;   n   0Bh (IRQ3) COM2 serial i/o              [SIO Ch.A -> masked]
-                dw          (INT0C+ROMOFF)              ;   y   0Ch (IRQ4) COM1 serial i/o              [UART console input (temp)]
+                dw          (INT0C+ROMOFF)              ;   y   0Ch (IRQ4) COM1 serial i/o              [UART console input -> masked]
                 dw          (INT0D+ROMOFF)              ;   n   0Dh (IRQ5) Hard disk attn.              [IDE -> masked]
                 dw          (IGNORE+ROMOFF)             ;       0Eh (IRQ6) Floppy disk attention        [masked]
                 dw          (IGNORE+ROMOFF)             ;       0Fh (IRQ7) Parallel printer             [masked]
@@ -4272,8 +4456,8 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (MONITOR+ROMOFF)            ;   y   18h monitor mode entry point (ROM Basic)
                 dw          (INT19+ROMOFF)              ;   y   19h Bootstrap (5-94/242 line 1181)
                 dw          (INT1A+ROMOFF)              ;   y   1Ah Time/date services (5-95/243 line 1294)
-                dw          (IGNORE+ROMOFF)             ;       1Bh Keyboard break user service
-                dw          (INT1C+ROMOFF)              ;       1Ch System tick user service
+                dw          (INT1B+ROMOFF)              ;   y   1Bh Keyboard break user service
+                dw          (INT1C+ROMOFF)              ;   y   1Ch System tick user service
                 dw          0                           ;       1Dh Address of Video parameter table
                 dw          0                           ;       1Eh Address of Disk parameter table
                 dw          0                           ;       1Fh Graphic charactr table ptr
@@ -4442,7 +4626,6 @@ IPLFAILMSG:     db          "OS boot (IPL) failed", CR, LF, 0
 RPIVGACURSON:   db          RPIVGACURSENA, 1, 0, 0, 0, 0, 0 ; turn cursor on
 RPIVGACURSOFF:  db          RPIVGACURSENA, 0, 0, 0, 0, 0, 0 ; turn cursor off
 RPIVGAECHO:     db          RPISYSECHO,    1, 2, 3, 4, 5, 6 ; send echo
-RPIVGADEFVID:   db          RPIVGASETVID,  7, 0, 0, 0, 0, 0 ; default video mode at POST: 80x25 Monochrome text
 ;
 ;-----  display mode parameters ** must match VGA emulation on RPi in 'fb.c' **
 ;       tx/gy mode: 0=not supported, 1=text, 2=graphics
@@ -4462,143 +4645,134 @@ DISPLAYMODE:    db           40,  25,   0,   2,   8      ; 0
 ;
 MODELIST:       equ         ($-DISPLAYMODE)/5            ; display mode table length for range checking
 ;
-;-----  ASCII to SCAN CODE table
-; source: http://stanislavs.org/helppc/scan_codes.html
-;                                                       ; DEC   Symbol  Description
-ASCII2SCAN:     db          000h                        ; 0     NUL     Null char
-                db          000h                        ; 1     SOH     Start of Heading
-                db          000h                        ; 2     STX     Start of Text
-                db          000h                        ; 3     ETX     End of Text
-                db          000h                        ; 4     EOT     End of Transmission
-                db          000h                        ; 5     ENQ     Enquiry
-                db          000h                        ; 6     ACK     Acknowledgment
-                db          000h                        ; 7     BEL     Bell
-                db          00eh                        ; 8     BS      Back Space
-                db          00fh                        ; 9     HT      Horizontal Tab
-                db          000h                        ; 10    LF      Line Feed
-                db          000h                        ; 11    VT      Vertical Tab
-                db          000h                        ; 12    FF      Form Feed
-                db          01ch                        ; 13    CR      Carriage Return
-                db          000h                        ; 14    SO      Shift Out / X-On
-                db          000h                        ; 15    SI      Shift In / X-Off
-                db          000h                        ; 16    DLE     Data Line Escape
-                db          000h                        ; 17    DC1     Device Control 1 (oft. XON)
-                db          000h                        ; 18    DC2     Device Control 2
-                db          000h                        ; 19    DC3     Device Control 3 (oft. XOFF)
-                db          000h                        ; 20    DC4     Device Control 4
-                db          000h                        ; 21    NAK     Negative Acknowledgement
-                db          000h                        ; 22    SYN     Synchronous Idle
-                db          000h                        ; 23    ETB     End of Transmit Block
-                db          000h                        ; 24    CAN     Cancel
-                db          000h                        ; 25    EM      End of Medium
-                db          000h                        ; 26    SUB     Substitute
-                db          001h                        ; 27    ESC     Escape
-                db          000h                        ; 28    FS      File Separator
-                db          000h                        ; 29    GS      Group Separator
-                db          000h                        ; 30    RS      Record Separator
-                db          000h                        ; 31    US      Unit Separator
-                db          039h                        ; 32            Space
-                db          002h                        ; 33    !       Exclamation mark
-                db          028h                        ; 34    "       Double quotes (or speech marks)
-                db          004h                        ; 35    #       Number
-                db          005h                        ; 36    $       Dollar
-                db          006h                        ; 37    %       Percent
-                db          008h                        ; 38    &       Ampersand
-                db          028h                        ; 39    '       Single quote
-                db          00ah                        ; 40    (       Open parenthesis (or open bracket)
-                db          00bh                        ; 41    )       Close parenthesis (or close bracket)
-                db          009h                        ; 42    *       Asterisk
-                db          00dh                        ; 43    +       Plus
-                db          033h                        ; 44    ,       Comma
-                db          00ch                        ; 45    -       Hyphen
-                db          034h                        ; 46    .       Period, dot or full stop
-                db          035h                        ; 47    /       Slash or divide
-                db          00bh                        ; 48    0       Zero
-                db          002h                        ; 49    1       One
-                db          003h                        ; 50    2       Two
-                db          004h                        ; 51    3       Three
-                db          005h                        ; 52    4       Four
-                db          006h                        ; 53    5       Five
-                db          007h                        ; 54    6       Six
-                db          008h                        ; 55    7       Seven
-                db          009h                        ; 56    8       Eight
-                db          00ah                        ; 57    9       Nine
-                db          027h                        ; 58    :       Colon
-                db          027h                        ; 59    ;       Semicolon
-                db          033h                        ; 60    <       Less than (or open angled bracket)
-                db          00dh                        ; 61    =       Equals
-                db          034h                        ; 62    >       Greater than (or close angled bracket)
-                db          035h                        ; 63    ?       Question mark
-                db          003h                        ; 64    @       At symbol
-                db          01eh                        ; 65    A       Uppercase A
-                db          030h                        ; 66    B       Uppercase B
-                db          02eh                        ; 67    C       Uppercase C
-                db          020h                        ; 68    D       Uppercase D
-                db          012h                        ; 69    E       Uppercase E
-                db          021h                        ; 70    F       Uppercase F
-                db          022h                        ; 71    G       Uppercase G
-                db          023h                        ; 72    H       Uppercase H
-                db          017h                        ; 73    I       Uppercase I
-                db          024h                        ; 74    J       Uppercase J
-                db          025h                        ; 75    K       Uppercase K
-                db          026h                        ; 76    L       Uppercase L
-                db          032h                        ; 77    M       Uppercase M
-                db          031h                        ; 78    N       Uppercase N
-                db          018h                        ; 79    O       Uppercase O
-                db          019h                        ; 80    P       Uppercase P
-                db          010h                        ; 81    Q       Uppercase Q
-                db          013h                        ; 82    R       Uppercase R
-                db          01fh                        ; 83    S       Uppercase S
-                db          014h                        ; 84    T       Uppercase T
-                db          016h                        ; 85    U       Uppercase U
-                db          02fh                        ; 86    V       Uppercase V
-                db          011h                        ; 87    W       Uppercase W
-                db          02dh                        ; 88    X       Uppercase X
-                db          015h                        ; 89    Y       Uppercase Y
-                db          02ch                        ; 90    Z       Uppercase Z
-                db          01ah                        ; 91    [       Opening bracket
-                db          02bh                        ; 92    \       Backslash
-                db          01bh                        ; 93    ]       Closing bracket
-                db          007h                        ; 94    ^       Caret - circumflex
-                db          00ch                        ; 95    _       Underscore
-                db          029h                        ; 96    `       Grave accent
-                db          01eh                        ; 97    a       Lowercase a
-                db          030h                        ; 98    b       Lowercase b
-                db          02eh                        ; 99    c       Lowercase c
-                db          020h                        ; 100   d       Lowercase d
-                db          012h                        ; 101   e       Lowercase e
-                db          021h                        ; 102   f       Lowercase f
-                db          022h                        ; 103   g       Lowercase g
-                db          023h                        ; 104   h       Lowercase h
-                db          017h                        ; 105   i       Lowercase i
-                db          024h                        ; 106   j       Lowercase j
-                db          025h                        ; 107   k       Lowercase k
-                db          026h                        ; 108   l       Lowercase l
-                db          032h                        ; 109   m       Lowercase m
-                db          031h                        ; 110   n       Lowercase n
-                db          018h                        ; 111   o       Lowercase o
-                db          019h                        ; 112   p       Lowercase p
-                db          010h                        ; 113   q       Lowercase q
-                db          013h                        ; 114   r       Lowercase r
-                db          01fh                        ; 115   s       Lowercase s
-                db          014h                        ; 116   t       Lowercase t
-                db          016h                        ; 117   u       Lowercase u
-                db          02fh                        ; 118   v       Lowercase v
-                db          011h                        ; 119   w       Lowercase w
-                db          02dh                        ; 120   x       Lowercase x
-                db          015h                        ; 121   y       Lowercase y
-                db          02ch                        ; 122   z       Lowercase z
-                db          01ah                        ; 123   {       Opening brace
-                db          02bh                        ; 124   |       Vertical bar
-                db          01bh                        ; 125   }       Closing brace
-                db          029h                        ; 126   ~       Equivalency sign - tilde
-                db          053h                        ; 127           Delete
+;-----  SCAN CODE to ASCII table
 ;
-ASCIILIST:      equ         ($-ASCII2SCAN)                          ; ASCII table length for range checking
+; source: http://stanislavs.org/helppc/scan_codes.html
+;
+; ffh: denotes a contrl/shift key or special function like print-screen with no ASCII
+; 00h: filler, non-existant, no assigned ASCII to key
+;
+;
+;-----  normal (non-shift) ASCII codes
+;
+ASCIINOSHIFT:   dw          011Bh,0231h,0332h,0433h
+                dw          0534h,0635h,0736h,0837h
+                dw          0938h,0A39h,0B30h,0C2Dh
+                dw          0D3Dh,0E08h,0F09h,1071h
+                dw          1177h,1265h,1372h,1474h
+                dw          1579h,1675h,1769h,186Fh
+                dw          1970h,1A5Bh,1B5Dh,1C0Dh
+                dw          0000h,1E61h,1F73h,2064h
+                dw          2166h,2267h,2368h,246Ah
+                dw          256Bh,266Ch,273Bh,2827h
+                dw          2960h,0000h,2B5Ch,2C7Ah
+                dw          2D78h,2E63h,2F76h,3062h
+                dw          316Eh,326Dh,332Ch,342Eh
+                dw          352Fh,0000h,372Ah,0000h
+                dw          3920h,0000h,3B00h,3C00h
+                dw          3D00h,3E00h,3F00h,4000h
+                dw          4100h,4200h,4300h,4400h
+                dw          0000h,0000h,4700h,4800h
+                dw          4900h,4A2Dh,4B00h,0000h
+                dw          4D00h,4E2Bh,4F00h,5000h
+                dw          5100h,5200h,5300h
+SCANNOSHIFT:    equ         ($-ASCIINOSHIFT)/2
+;
+;-----  Shift ASCII codes
+;
+ASCIISHIFT:     dw          011Bh,0221h,0340h,0423h
+                dw          0524h,0625h,075Eh,0826h
+                dw          092Ah,0A28h,0B29h,0C5Fh
+                dw          0D2Bh,0E08h,0F00h,1051h
+                dw          1157h,1245h,1352h,1454h
+                dw          1559h,1655h,1749h,184Fh
+                dw          1950h,1A7Bh,1B7Dh,1C0Dh
+                dw          0000h,1E41h,1F53h,2044h
+                dw          2146h,2247h,2348h,244Ah
+                dw          254Bh,264Ch,273Ah,2822h
+                dw          297Eh,0000h,2B7Ch,2C5Ah
+                dw          2D58h,2E42h,2F56h,3042h
+                dw          314Eh,324Dh,333Ch,343Eh
+                dw          353Fh,0000h,0000h,0000h
+                dw          3920h,0000h,5400h,5500h
+                dw          5600h,5700h,5800h,5900h
+                dw          5A00h,5B00h,5C00h,5D00h
+                dw          0000h,0000h,4737h,4838h
+                dw          4939h,4A2Dh,4B34h,4C35h
+                dw          4D36h,4E2Bh,4F31h,5032h
+                dw          5133h,5230h,532Eh
+SCANSHIFT:      equ         ($-ASCIISHIFT)/2
+;
+;-----  Ctrl ASCII codes
+;
+ASCIICTRL:      dw          011Bh,0000h,0300h,0000h
+                dw          0000h,0000h,071Eh,0000h
+                dw          0000h,0000h,0000h,0C1Fh
+                dw          0000h,0E7Fh,9400h,1011h
+                dw          1117h,1205h,1312h,1414h
+                dw          1519h,1615h,1709h,180Fh
+                dw          1910h,1A1Bh,1B1Dh,1C0Ah
+                dw          0000h,1E01h,1F13h,2004h
+                dw          2106h,2207h,2308h,240Ah
+                dw          250Bh,260Ch,0000h,0000h
+                dw          0000h,0000h,2B1Ch,2C1Ah
+                dw          2D18h,2E03h,2F16h,3002h
+                dw          310Eh,320Dh,0000h,0000h
+                dw          0000h,0000h,9600h,0000h
+                dw          3920h,0000h,5E00h,5F00h
+                dw          6000h,6100h,6200h,6300h
+                dw          6400h,6500h,6600h,6700h
+                dw          0000h,0000h,7700h,8D00h
+                dw          8400h,8E00h,7300h,8F00h
+                dw          7400h,0000h,7500h,9100h
+                dw          7600h,9200h,9300h
+SCANCTRL:       equ         ($-ASCIICTRL)/2
+;
+;-----  Alt ASCII codes
+;
+ASCIIALT:       dw          0100h,7800h,7900h,7A00h
+                dw          7B00h,7C00h,7D00h,7E00h
+                dw          7F00h,8000h,8100h,8200h
+                dw          8300h,0E00h,0A500h,1000h
+                dw          1100h,1200h,1300h,1400h
+                dw          1500h,1600h,1700h,1800h
+                dw          1900h,1A00h,1B00h,0A600h
+                dw          0000h,1E00h,1F00h,2000h
+                dw          2100h,2200h,2300h,2400h
+                dw          2500h,2600h,2700h,0000h
+                dw          0000h,0000h,2600h,2C00h
+                dw          2D00h,2E00h,2F00h,3000h
+                dw          3100h,3200h,0000h,0000h
+                dw          0000h,0000h,3700h,0000h
+                dw          3920h,0000h,6800h,6900h
+                dw          6A00h,6B00h,6C00h,6D00h
+                dw          6E00h,6F00h,7000h,7100h
+                dw          0000h,0000h,9700h,9800h
+                dw          9900h,4A00h,9B00h,0000h
+                dw          9D00h,4E00h,9F00h,0A000h
+                dw          0A100h,0A200h,0A300h
+SCANALT:        equ         ($-ASCIIALT)/2
+;
+;-----  Key pad Num-Locked translation table
+;                                                         scan code key
+KEYPADNUMLOCK:  dw          0837h                       ;   71      '7'
+                dw          0938h                       ;   72      '8'
+                dw          0A39h                       ;   73      '9'
+                dw          4A2Dh                       ;   74      '-' always send keypad code
+                dw          0534h                       ;   75      '4'
+                dw          0635h                       ;   76      '5'
+                dw          0736h                       ;   77      '6'
+                dw          4E2Bh                       ;   78      '+' always send keypad code
+                dw          0231h                       ;   79      '1'
+                dw          0332h                       ;   80      '2'
+                dw          0433h                       ;   81      '3'
+                dw          0B30h                       ;   82      '0'
+                dw          342Eh                       ;   83      '.'
+KEYPAD:         equ         ($-KEYPADNUMLOCK)/2
 ;
 ;-----  sector filled with formatting byte to use for INT13/05 format track
 ;
-EMPTYSECTOR:    times 512 db FORMATFILL                             ; 512 bytes for sector formatting
+EMPTYSECTOR:    times 512 db FORMATFILL                 ; 512 bytes for sector formatting
 ;
 ;   *********************************
 ;   ***    Debug section          ***
@@ -4741,7 +4915,8 @@ DEBUGSTZ:       push        ax
 INT10DBG:       db          CR, LF, "=== int-10 unhandled function 0x", 0
 INT13DBG:       db          CR, LF, "=== int-13 unhandled function 0x", 0
 INT16DBG:       db          CR, LF, "=== int-16 unhandled function 0x", 0
-KBDDBG:         db          "scan code 0x", 0
+KBDDBG1:        db          "scan code 0x", 0
+KBDDBG2:        db          " 0x", 0
 CHSDBG:         db          CR, LF, "=== CHS2LBA",0
 PRAX:           db          CR, LF, " ax=0x", 0
 PRBX:           db          " bx=0x", 0

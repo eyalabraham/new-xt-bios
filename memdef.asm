@@ -175,7 +175,8 @@ bdIPLERR:       resb        1                   ; 40:15 - IPL errors<-table/scra
 ;
 ; Keyboard data area
 ;
-bdSHIFT:        resw        1                   ; 40:17 - Shift/Alt/etc. keyboard flags
+bdSHIFT:        resb        1                   ; 40:17 - Shift/Alt/etc. keyboard flags byte 0
+                resb        1                   ; 40:18 - Keyboard flag byte 1
                 resb        1                   ; 40:19 - Alt-KEYPAD char. goes here
 bdKEYBUFHEAD:   resw        1                   ; 40:1A - --> keyboard buffer read poiter (head)
 bdKEYBUFTAIL:   resw        1                   ; 40:1C - --> keyboard buffer write pointer (tail)
@@ -251,7 +252,7 @@ bdNEWDAY:       resb        1                   ; 40:70 - Non-zero if new day
 ;
 ; System data area
 ;
-                resb        1                   ; 40:71 - Sign bit set if break
+bdBIOSBREAK:    resb        1                   ; 40:71 - Sign bit set if break
 bdBOOTFLAG:     resw        1                   ; 40:72 - Warm boot if 1234h value
 ;
 ; Hard disk scratchpad

@@ -25,8 +25,9 @@ DEFVIDEOMODE:   equ         9                   ; BIOS POST goes into special mo
 ; Debug output
 ;======================================
 ;
-%define         DebugConsole    1               ; SIO UART Ch.A debug console: 0=no, 1=yes
+%define         DebugConsole    0               ; SIO UART Ch.A debug console: 0=no, 1=yes
 ;
+%define         INT09_Debug     1
 %define         INT10_Debug     1
 %define         INT13_Debug     0
 %define         INT16_Debug     1

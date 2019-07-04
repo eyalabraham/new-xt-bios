@@ -185,7 +185,7 @@ IRR:            equ         020h                ; interrupt request register
 ISR:            equ         020h                ; interrupt in service register
 IMR:            equ         021h                ; interrupt mask register
 ;
-IMRINIT:        equ         11101100b
+IMRINIT:        equ         11111100b
 ;                           ||||||||
 ;                           |||||||+--- b0.. (IRQ0) Timer tick
 ;                           ||||||+---- b1.. (IRQ1) Keyboard attention
@@ -313,6 +313,42 @@ PPIPBKBDBUSY:   equ         10000000b
 ;  0     1   128K       0         1      color 40x25      0       1     Floppy alt.1
 ;  1     0   192K       1         0      color 80x25      1       0     Floppy alt.2
 ;  1     1   256K       1         1      mono  80x25      1       1     Floppy alt.3
+;
+;--------------------------------------
+; Keyboard
+;--------------------------------------
+;
+KBD_LSHIFT:     equ         42                  ; make codes (break code with b7=1)
+KBD_RSHIFT:     equ         54
+KBD_CTRL:       equ         29
+KBD_ALT:        equ         56
+KBD_CAPSLOCK:   equ         58
+KBD_NUMLOCK:    equ         69
+KBD_SCROLLOCK:  equ         70
+KBD_INSERT:     equ         82
+KBD_DELETE:     equ         83
+KBD_KEYPAD:     equ         71
+KBD_MAX_CODE:   equ         83
+KBD_BREAK:      equ         84
+KBD_BREAK_CODE: equ         80h
+;
+KBD_FLAG_RSHFT: equ         00000001b
+KBD_FLAG_LSHFT: equ         00000010b
+KBD_FLAG_CTRL:  equ         00000100b
+KBD_FLAG_ALT:   equ         00001000b
+KBD_FLAG_SCLCK: equ         00010000b
+KBD_FLAG_NMLCK: equ         00100000b
+KBD_FLAG_CPLCK: equ         01000000b
+KBD_FLAG_INS:   equ         10000000b
+;                           ||||||||
+;                           |||||||+--- right shift key depressed
+;                           ||||||+---- left shift key depressed
+;                           |||||+----- CTRL key depressed
+;                           ||||+------ ALT key depressed
+;                           |||+------- scroll-lock is active
+;                           ||+-------- num-lock is active
+;                           |+--------- caps-lock is active
+;                           +---------- insert is active
 ;
 ;--------------------------------------
 ; DMA page register
