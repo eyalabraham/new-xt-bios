@@ -27,29 +27,29 @@ Cross reference of BIOS POST steps:
 | 255  |              | Determine memory size and test first 2K     |
 | 297  |              | First 2K ok and setup STACK                 |
 | 309  |              | Setup interrupt controller and vectors      |
-| 357  |              | SIO-ch.B setup and RPi rendezvous           |
-| 406  |              | Set RPI VGA card                            |
-| 433  |              | SIO-ch.A setup and RPi rendezvous           |
-| 470  |              | UART1 setup and test                        |
-| 539  |              | Setup system configuration                  |
-| 587  |              | RAM test                                    |
-| 628  |              | setup keyboard buffer, time of day, EI, NMI |
-| 678  |              | IDE setup                                   |
-| 848  |  IPLBOOT     | Boot OS                                     |
-| 886  |  MONITOR     | Monitor mode                                |
+| 371  |              | SIO-ch.B setup and RPi rendezvous           |
+| 420  |              | Set RPI VGA card                            |
+| 447  |              | SIO-ch.A setup and RPi rendezvous           |
+| 484  |              | UART1 setup and test                        |
+| 553  |              | Setup system configuration                  |
+| 601  |              | RAM test                                    |
+| 642  |              | setup keyboard buffer, time of day, EI, NMI |
+| 692  |              | IDE setup                                   |
+| 862  |  IPLBOOT     | Boot OS                                     |
+| 907  |  MONITOR     | Monitor mode                                |
 
 ## Video emulation
-Video display is emulated by a Raspberry Pi Zero (RPi). The RPi runs an emulation program that emulates CGA, MDA and Heculer cards on thr RPI's frame buffer. BIOS video commands are translated and exchanged with the emulation code via serial link through a Z80-SIO dual-USART (channel B). Emultation commands are described in iodef.asm.
+Video display is emulated by a Raspberry Pi Zero (RPi). The RPi runs an emulation program that emulates CGA, MDA and Hercules cards on the RPI's frame buffer. BIOS video commands are translated and exchanged with the emulation code via serial link through a Z80-SIO dual-USART (channel B). Emulation commands are described in iodef.asm.
 
 ## Keyboard
-A PS/2 keyboard is connected through an AVR ATmega328p, which controlls the PS/2 keyboard as well as translates PS/2 scan codes into PC-XT codes. The AVR connects directly into the motherboard, **replaces** the 74LS322 shift register, and inputs the codes directly into the system's 8255 PPI. This setup avoid the need to translate the scan codes into a serial format expected by the PC-XT.
+A PS/2 keyboard is connected through an AVR ATmega328p, which controls the PS/2 keyboard as well as translates PS/2 scan codes into PC-XT codes. The AVR connects directly into the motherboard, **replaces** the 74LS322 shift register, and inputs the codes directly into the system's 8255 PPI. This setup avoid the need to translate the scan codes into a serial format expected by the PC-XT.
 
 ## Floppy drives and hard drive emulation
-an IDE interface implemented with a 8255 PPI is used to interface with a CF card. The BIOS emulates two floppy drives and a hard drive on a single CF card. Floppy A can have up to four images selectable via DIP switches 7 and 8, which allows user to emulate floppy disk changes. The images of the floppies are saved on a PC, and writen to the CF card into specific locations using Linux 'dd'.
+An IDE interface implemented with a 8255 PPI is used to interface with a CF card. The BIOS emulates two floppy drives and a hard drive on a single CF card. Floppy A can have up to four images selectable via DIP switches 7 and 8, which allows user to emulate floppy disk changes. The images of the floppies are saved on a PC, and written to the CF card into specific locations using Linux 'dd'.
 
 ## INT 10h register mapping
-Rssource [BIOS 10h calls](http://stanislavs.org/helppc/int_10.html)
-Register usage mapping of implemented NIOS functions:
+Resource [BIOS 10h calls](http://stanislavs.org/helppc/int_10.html)
+Register usage mapping of implemented BIOS functions:
 
 | call      | function                                              |  AL    | BH     |BL     |CH     |CL     |DH     |DL      |
 |-----------|-------------------------------------------------------|--------|--------|-------|-------|-------|-------|--------|

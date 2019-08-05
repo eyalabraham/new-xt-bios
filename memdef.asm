@@ -34,13 +34,13 @@
 ;               |     |         |                               |     |         |
 ;               |    \ /        |                               |    \ /        |
 ;               |               |                   0040:0100   +--- XMODEM  ---+   00500h
-;   0050:0000   +---  free  ----+   00500h                      |    buffer     |
+;   0050:0000   +--- DOS data --+   00500h                      |    buffer     |
 ;               |     |         |                               |     |         |
 ;               |    \ /        |                               |    \ /        |
 ;               |               |                   0060:0000   +--- mon88 -----+   00600h
-;               |               |                               |     data      |
-;               |               |                   0070:0000   +--- XMODEM  ---+   00700h
-;               |               |                               |    & disk     |
+;   0070:0000   +--- IO.SYS ----+   00700h                      |     data      |
+;               |     |         |                   0070:0000   +--- XMODEM  ---+   00700h
+;               |    \ /        |                               |    & disk     |
 ;               |               |                               |   staging     |
 ;               |               |                               |     |         |
 ;               |               |                               |    \ /        |
@@ -70,6 +70,7 @@
 ;
 BIOSDATASEG:    equ         0040h
 BIOSDATAOFF:    equ         0000h
+DOSDATASEG:     equ         0050h
 ;
 ;--------------------------------------
 ; Stack
@@ -120,14 +121,17 @@ RSTVEC:         equ         0fff0h              ; CPU reset vector
 RELDATE:        equ         0fff5h              ; BIOS release date stamp
 CHECKSUM:       equ         0fffeh              ; BIOS checksum
 MAX_MEMORY:     equ         704                 ; maximum kilobytes of memory allowed
-DRIVEPARAMVEC:  equ         078h                ; drive parameter table vector
-SIGNITURE:      equ         55aah               ; mon88 'go' command code signiture
+SIGNITURE:      equ         55aah               ; mon88 'go' command code signature
 ;
 ;--------------------------------------
 ; fixed disk parameter vectors
 ; @@- http://www.ctyme.com/intr/rb-6135.htm
 ;--------------------------------------
 ;
+VECVIDPARAM:    equ          74h                ; segment:offset for vector 1Dh Address of Video parameter table
+VECFLPDBT:      equ          78h                ; segment:offset for floppy DBT vector 1Eh
+VECCHATTBL:     equ          7ch                ; segment:offset for vector 1Fh Graphic character table ptr
+VECFLOPPY:      equ         100h                ; segment:offset for old INT 13h floppy
 VECFIXDDSK0:    equ         104h                ; segment:offset for vector 41h
 VECFIXDDSK1:    equ         118h                ; segment:offset for vector 46h
 ;
@@ -146,7 +150,7 @@ bdEQUIPMENT:    resw        1                   ; 40:10 - Equipment present word
 ;                                                          |F|E|D|C|B|A|9|8|7|6|5|4|3|2|1|0|
 ;                                                           | | | | | | | | | | | | | | | |
 ;                                                           | | | | | | | | | | | | | | | +-- IPL diskette installed
-;                                                           | | | | | | | | | | | | | | +---- math coprocessor
+;                                                           | | | | | | | | | | | | | | +---- math co-processor
 ;                                                           | | | | | | | | | | | | +-+------ old PC system board RAM < 256K
 ;                                                           | | | | | | | | | | +-+---------- initial video mode
 ;                                                           | | | | | | | | +-+-------------- # of diskette drives, less 1
@@ -178,7 +182,7 @@ bdIPLERR:       resb        1                   ; 40:15 - IPL errors<-table/scra
 bdSHIFT:        resb        1                   ; 40:17 - Shift/Alt/etc. keyboard flags byte 0
                 resb        1                   ; 40:18 - Keyboard flag byte 1
                 resb        1                   ; 40:19 - Alt-KEYPAD char. goes here
-bdKEYBUFHEAD:   resw        1                   ; 40:1A - --> keyboard buffer read poiter (head)
+bdKEYBUFHEAD:   resw        1                   ; 40:1A - --> keyboard buffer read pointer (head)
 bdKEYBUFTAIL:   resw        1                   ; 40:1C - --> keyboard buffer write pointer (tail)
 bdKEYBUF:       resw        16                  ; 40:1E - Keyboard Buffer (Scan,Value)
 ;
@@ -186,7 +190,7 @@ bdKEYBUF:       resw        16                  ; 40:1E - Keyboard Buffer (Scan,
 ;
 bdHOSTLBAOFF:   resw        1                   ; 40:3E - alternate floppy drive offset was "Drive Calibration bits 0-3"
                                                 ; 40:3F - was "Drive Motor(s) on 0-3,7=write"
-bdALTFLOPPY:    resb        1                   ; 40:40 - alternate floppy seleted (dip switch SW7 and SW8)  was "Ticks (18/sec) til motor off"
+bdALTFLOPPY:    resb        1                   ; 40:40 - alternate floppy selected (dip switch SW7 and SW8)  was "Ticks (18/sec) til motor off"
 bdDRIVESTATUS1: resb        1                   ; 40:41 + Floppy return code stat byte
                                                 ;       |
                                                 ;       - 001h   1 = bad ic 765 command req.
@@ -217,9 +221,9 @@ bdVIDEOMODE:    resb        1                   ; 40:49 + Current CRT mode  (sof
                                                 ;       - 1 = 40 x 25 text (16 color)
                                                 ;       - 2 = 80 x 25 text (no color)
                                                 ;       - 3 = 80 x 25 text (16 color)
-                                                ;       - 4 = 320 x 200 grafics 4 color
-                                                ;       - 5 = 320 x 200 grafics 0 color
-                                                ;       - 6 = 640 x 200 grafics 0 color
+                                                ;       - 4 = 320 x 200 graphics 4 color
+                                                ;       - 5 = 320 x 200 graphics 0 color
+                                                ;       - 6 = 640 x 200 graphics 0 color
                                                 ;       - 7 = 80 x 25 text (mono card)
 bdCRTCOL:       resw        1                   ; 40:4A - Columns on CRT screen
 bdCRTROW:       resw        1                   ; 40:4C - Rows on CRT screen (was: Bytes in the regen region)
@@ -235,7 +239,7 @@ bdCURSPOS7:     resw        1                   ; 40:5E - Cursor pos for page 7
 bdCURSBOT:      resb        1                   ; 40:60 - Current cursor bottom scan line
 bdCURSTOP:      resb        1                   ; 40:61 - Current cursor top scan line
 bdVIDEOPAGE:    resb        1                   ; 40:62 - Current page on display
-                resw        1                   ; 40:63 - Base addres (B000h or B800h)
+                resw        1                   ; 40:63 - Base address (B000h or B800h)
                 resb        1                   ; 40:65 - ic 6845 mode reg. (hardware)
 bdCGAPALETTE:   resb        1                   ; 40:66 - Current CGA palette
 ;
@@ -252,7 +256,7 @@ bdNEWDAY:       resb        1                   ; 40:70 - Non-zero if new day
 ;
 ; System data area
 ;
-bdBIOSBREAK:    resb        1                   ; 40:71 - Sign bit set if break
+bdBIOSBREAK:    resb        1                   ; 40:71 - bit 7 set if Ctrl-Break
 bdBOOTFLAG:     resw        1                   ; 40:72 - Warm boot if 1234h value
 ;
 ; Hard disk scratchpad
@@ -357,7 +361,7 @@ endstruc
 struc           IDEIDENTIFYSTRUCT
 ;
                 resw        1
-iiCYL:          resw        1                   ; logical cyliders
+iiCYL:          resw        1                   ; logical cylinders
                 resw        1
 iiHEADS:        resw        1                   ; logical heads
                 resw        2

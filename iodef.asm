@@ -138,7 +138,7 @@ DMACMDINIT:     equ         00000100b
 ;
 DMACH0MODE:     equ         01011000b
 ;                           ||||||||
-;                           ||||||++--- b0,b1.. channle 0 ('00')
+;                           ||||||++--- b0,b1.. channel 0 ('00')
 ;                           ||||++----- b2,b3.. read transfer ('10')
 ;                           |||+------- b4..    auto init enabled
 ;                           ||+-------- b5..    address increment
@@ -146,7 +146,7 @@ DMACH0MODE:     equ         01011000b
 ;
 DMACH1MODE:     equ         01000001b
 ;                           ||||||||
-;                           ||||||++--- b0,b1.. channle 1 ('01')
+;                           ||||||++--- b0,b1.. channel 1 ('01')
 ;                           ||||++----- b2,b3.. verify ('00')
 ;                           |||+------- b4..    auto init disable
 ;                           ||+-------- b5..    address increment
@@ -154,7 +154,7 @@ DMACH1MODE:     equ         01000001b
 ;
 DMACH2MODE:     equ         01000010b
 ;                           ||||||||
-;                           ||||||++--- b0,b1.. channle 2 ('10')
+;                           ||||||++--- b0,b1.. channel 2 ('10')
 ;                           ||||++----- b2,b3.. verify ('00')
 ;                           |||+------- b4..    auto init disable
 ;                           ||+-------- b5..    address increment
@@ -162,7 +162,7 @@ DMACH2MODE:     equ         01000010b
 ;
 DMACH3MODE:     equ         01000011b
 ;                           ||||||||
-;                           ||||||++--- b0,b1.. channle 3 ('11')
+;                           ||||||++--- b0,b1.. channel 3 ('11')
 ;                           ||||++----- b2,b3.. verify ('00')
 ;                           |||+------- b4..    auto init disable
 ;                           ||+-------- b5..    address increment
@@ -538,7 +538,7 @@ IDERST:         equ         10000000b
 ;                           |+--------- b6.. WR
 ;                           +---------- b7.. Reset
 ;
-;-----  IDE Command Block Reisters: internal register addressed with PPI port C b0..b2 (IDECNT:)
+;-----  IDE Command Block Registers: internal register addressed with PPI port C b0..b2 (IDECNT:)
 ;
 IDEDATA:        equ         00001000b           ; Read/write data (16 bit register accessed from PPI PA(low byte) and PB(high byte)
 IDEFEATUREERR:  equ         00001001b           ; Feature (wr) and error (rd) information
@@ -547,7 +547,7 @@ IDELBALO:       equ         00001011b           ; Sector / low byte of LBA (b0..
 IDELBAMID:      equ         00001100b           ; cylinder low / mid byte of LBA (b8..b15)
 IDELBAHI:       equ         00001101b           ; cylinder high / high byte of LBA (b16..b23)
 IDEDEVLBATOP:   equ         00001110b           ; drive select and/or head and top LBA address bits (b24..b27) - see below
-IDECMDSTATUS:   equ         00001111b           ; commad (wr) or regular status (rd) - see below
+IDECMDSTATUS:   equ         00001111b           ; command (wr) or regular status (rd) - see below
 IDEALTSTATUS:   equ         00010110b           ; Alternate Status (rd), used for software reset and to enable/disable interrupts
 IDEDEVCTL:      equ         00010110b           ; Device Control Register (wr)
 ;                              |||||
@@ -649,7 +649,7 @@ SIOCMDA:        equ         SIOBASE+2               ; channel A command
 SIOCMDB:        equ         SIOBASE+3               ; channel B command
 ;
 SIORR0RXC:      equ         00000001b               ; receive character ready
-SIORR0INT:      equ         00000010b               ; inetrrupt pending (channel A)
+SIORR0INT:      equ         00000010b               ; interrupt pending (channel A)
 SIORR0TXEMPYC:  equ         00000100b               ; transmit buffer empty
 SIORR0CTS:      equ         00100000b               ; CTS state
 SIORR0CTSTX:    equ         00100100b
@@ -661,7 +661,7 @@ SIORR0CTSTX:    equ         00100100b
 ;                           ||||+------ b3.. DCD line state
 ;                           |||+------- b4.. SYNC/HUNT
 ;                           ||+-------- b5.. CTS line state
-;                           |+--------- b6.. Transmit underrun
+;                           |+--------- b6.. Transmit under-run
 ;                           +---------- b7.. Break/Abort
 ;
 ;--------------------------------------
@@ -691,7 +691,7 @@ HALTSTATE:      equ         01111111b
 ; SIO Ch.B RPi interface
 ;--------------------------------------
 ;
-END:            equ         0c0h                    ; SLIP escame codes
+END:            equ         0c0h                    ; SLIP escape codes
 ESC:            equ         0dbh                    ; https://en.wikipedia.org/wiki/Serial_Line_Internet_Protocol
 ESCEND:         equ         0dch
 ESCESC:         equ         0ddh
@@ -709,7 +709,8 @@ ESCESC:         equ         0ddh
 ; | Scroll down (4)   | 8      | Rows         | T.L col         | T.L row       | B.R col   | B.R row    | Attrib.(2) |
 ; | Put pixel         | 9      | Page         | Pixel color (3) |       16-bit column       |       16-bit row        |
 ; | Get pixel (8)     | 10     | Page         | 0               |       16-bit column       |       16-bit row        |
-; | Clear screen      | 11     | Page         | 0               | 0             | 0         | 0          | Attrib.(2) |
+; | Set palette       | 11     | palette/color| palette ID      | 0             | 0         | 0          | 0          |
+; | Clear screen      | 12     | Page         | 0               | 0             | 0         | 0          | Attrib.(2) |
 ; | Echo (9)          | 255    | 1            | 2               | 3             | 4         | 5          | 6          |
 ;
 ; (1) Character is written to cursor position
@@ -734,7 +735,8 @@ RPIVGASCRLUP:   equ         7
 RPIVGASCRLDN:   equ         8
 RPIVGAPUTPIX:   equ         9
 RPIVGAGETPIX:   equ         10
-RPIVGASCRCLR:   equ         11
+RPIVGAPALETTE:  equ         11
+RPIVGASCRCLR:   equ         12
 ;
 RPISYSECHO:     equ         255
 ;
@@ -781,7 +783,7 @@ INT13SENSEFAIL: equ         0FFh                    ;  sense operation failed
 ;       - 33F                 |   
 ;   378 - 37F Parallel port 1
 ;   380 - 38F SDLC bisynchronous 2
-;   3B0 - 3BF Monochrome adaptor/printer
+;   3B0 - 3BF Monochrome adapter/printer
 ;   3D0 - 3D7 CGA
 ;   3F0 - 3F7 Floppy disk
 ;   3F8 - 3FF Serial port

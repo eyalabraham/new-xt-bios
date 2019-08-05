@@ -18,7 +18,7 @@
 ;                   : http://www.ousob.com/ng/peter_norton/ng76349.php
 ;
 ; change log:
-;   May 2019    RPi display, COM2 with Z80-SIO, repurpose existing UART to COM1, CF card
+;   May 2019    RPi display, COM2 with Z80-SIO, re-purpose existing UART to COM1, CF card
 ;   2014        support for multiple A: / fd0 floppy drives using dip switches SW7 and 8
 ;               to allow minix installation from multiple floppy diskettes
 ;               system floppy count is now hard coded to two (2)
@@ -117,7 +117,7 @@ CPU_OK:         cld
 ;   ***   8255 PPI   ***
 ;   ********************
 ;
-;-----  setup PPI to read DIP swithes and keyboard
+;-----  setup PPI to read DIP switches and keyboard
 ;
                 mov         al,PPIINIT
                 out         PPICTRL,al                  ; setup 8255 PPI
@@ -136,7 +136,7 @@ CPU_OK:         cld
 ;-----  initialize timer-0
 ;
                 mov         al,TIMER0INIT
-                out         TIMERCTRL,al                ; initilize timer-0, LSB/MSB, mode 3
+                out         TIMERCTRL,al                ; initialize timer-0, LSB/MSB, mode 3
                 mov         al,0
                 out         TIMER0,al                   ; set count to 0ffffh
                 nop
@@ -292,7 +292,7 @@ MEM2KCHECK:     jc          HALT                        ; memory failure
                 shr         ax,cl                       ; adjust memory size value to be in KB
                 mov         [ds:bdMEMSIZE],ax           ; store in BIOS data area
                 mov         byte [ds:bdIPLERR],0        ; clear IPL error flags
-                mov         [ds:bdBOOTFLAG],si          ; restor BIOS boot flag
+                mov         [ds:bdBOOTFLAG],si          ; restore BIOS boot flag
 ;
                 mov         ax,STACKSEG                 ; set up IBM-compatible stack
                 mov         ss,ax                       ; segment 0030h
@@ -306,7 +306,7 @@ MEM2KCHECK:     jc          HALT                        ; memory failure
 ;
 ; @@-   page 235/5-87 line 409 IBM BIOS listing
 ;
-                mov         al,INIT1                    ; setup ICW1 w/ ICW4, single 8259, endge triggered interrupt
+                mov         al,INIT1                    ; setup ICW1 w/ ICW4, single 8259, edge triggered interrupt
                 out         ICW1,al
                 mov         al,INIT2                    ; setup ICW1 a8..a15 of vector address
                 out         ICW2,al
@@ -326,8 +326,8 @@ MEM2KCHECK:     jc          HALT                        ; memory failure
                 mov         ds,ax                       ; establish source in DS of ROM vector table segment
                 mov         si,(VECTORS+ROMOFF)         ; ROM source offset of vector table [DS:SI]
                 cld                                     ; SI and DI will increment
-                mov         cx,32                       ; handle all 32 vectors
-VECCOPY:        movsw                                   ; copy the vector offser component
+                mov         cx,NUMVECTORS               ; handle vector list
+VECCOPY:        movsw                                   ; copy the vector offset component
                 mov         ax,cs
                 stosw                                   ; add segment address
                 loop        VECCOPY                     ; loop to copy all vectors
@@ -337,16 +337,30 @@ VECCOPY:        movsw                                   ; copy the vector offser
 ;
                 xor         ax,ax
                 mov         es,ax
-                mov         word [es:7Ch],0             ; there are no special graphics chars in the system
-                mov         word [es:7Eh],0             ; so zero vector 1Fh
+;
+                mov         word [es:VECVIDPARAM],0     ; no Video parameter table
+                mov         word [es:VECVIDPARAM+2],0   ; so zero vector 1Dh
+;
+                mov         ax,(FLP0DBT+ROMOFF)         ; get offset of floppy DBT
+                mov         [es:VECFLPDBT],ax
+                mov         ax,cs                       ; get segment of DBT
+                mov         [es:VECFLPDBT+2],ax
+;
+                mov         word [es:VECCHATTBL],0      ; there are no special graphics chars in the system
+                mov         word [es:VECCHATTBL+2],0    ; so zero vector 1Fh
+;
+                mov         ax,(INT13+ROMOFF)           ; for compatibility, store INT 13h offset
+                mov         [es:VECFLOPPY],ax
+                mov         ax,cs                       ; and segment
+                mov         [es:VECFLOPPY+2],ax         ; into the 'old'/alternate INT 13h vector
+;
+                mov         ax,(FD0PARAM+ROMOFF)        ; get offset of disk parameter table
+                mov         [es:VECFIXDDSK0],ax         ; fixed disk 0 param table
+                mov         ax,cs                       ; get segment
+                mov         [es:VECFIXDDSK0+2],ax       ; fixed disk 0 param table
 ;
                 mov         word [es:VECFIXDDSK1],0     ; fixed disk 1 param table - no second fixed disk
                 mov         word [es:VECFIXDDSK1+2],0   ; fixed disk 1 param table
-;
-                mov         ax,(DRV2DBT+ROMOFF)         ; get offset of FDPT
-                mov         word [es:VECFIXDDSK0],ax    ; fixed disk 0 param table - point to FDPT
-                mov         ax,cs                       ; get segment of FDPT
-                mov         word [es:VECFIXDDSK0+2],ax  ; fixed disk 1 param table
 ;
 ;   ********************
 ;   ***  UART2 ch.B  ***
@@ -525,7 +539,7 @@ WAITBYTE:       mov         dx,LSR
                 mov         dx,MCR
                 in          al,dx
                 and         al,11101111b
-                out         dx,al                       ; set UART back to notmal Rx/Tx mode
+                out         dx,al                       ; set UART back to normal Rx/Tx mode
                 jmp         SYSTEMCONF
 ;
 UARTFAIL:       mcrPRINT    UARTFAILMSG
@@ -576,7 +590,7 @@ SYSTEMCONF:     mov         ax,BIOSDATASEG
 ;
                 mov         byte [ds:bdFIXEDDRVCNT],FIXEDCNT ; count of fixed drives
 ;
-;-----  TODO: (not implemented) scan for paralle ports, com ports, game ports etc. and store configuration
+;-----  TODO: (not implemented) scan for parallel ports, com ports, game ports etc. and store configuration
 ;
 ;   *********************************
 ;   ***          RAM TEST         ***
@@ -715,7 +729,7 @@ IDESETUP02:     mov         ah,IDEDEVCTLINIT            ; IDE device control ini
                 mov         cx,6
 CLRCMDBLOCK1:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command block
                 inc         si
-                loop        CLRCMDBLOCK1                ; loop to clear comand block
+                loop        CLRCMDBLOCK1                ; loop to clear command block
                 mov         al,IDEIDENTIFY              ; "identify" command
                 mov         [ds:si+bdIDECMDBLOCK],al    ; store in command block
                 call        IDESENDCMD                  ; send command block to drive
@@ -789,7 +803,7 @@ PRNTIDEMODEL:   mov         dx,[es:si+iiMODEL+bx]
                 mov         cx,5
 CLRCMDBLOCK2:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command block
                 inc         si
-                loop        CLRCMDBLOCK2                ; loop to clear comand block
+                loop        CLRCMDBLOCK2                ; loop to clear command block
                 mov         al,IDESETFEATURE            ; "set feature" command
                 mov         [ds:si+bdIDECMDBLOCK],al    ; store in command block
                 call        IDESENDCMD                  ; send command block to drive
@@ -812,7 +826,7 @@ CLRCMDBLOCK2:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command bloc
                 mov         cx,5
 CLRCMDBLOCK3:   mov         [ds:si+bdIDECMDBLOCK],al    ; setup IDE command block
                 inc         si
-                loop        CLRCMDBLOCK3                ; loop to clear comand block
+                loop        CLRCMDBLOCK3                ; loop to clear command block
                 mov         al,IDESETFEATURE            ; "set feature" command
                 mov         [ds:si+bdIDECMDBLOCK],al    ; store in command block
                 call        IDESENDCMD                  ; send command block to drive
@@ -845,7 +859,14 @@ IDEFAIL:        mcrPRINT    FAILMSG                     ; print "fail" message
 ;
 ;-----  boot from HDD (IPL) or go into ROM monitor mode
 ;
-IPLBOOT:        mov         ax,BIOSDATASEG
+IPLBOOT:        mov         ax,DOSDATASEG               ; clear DOS memory area from mon88 and other data
+                mov         es,ax                       ; 0050:0000 to 0050:03ff (00500h to 008ffh))
+                call        MEMTST                      ; test 1K and leave memory zero'd out
+                jnc         .DosMemReady
+                mcrPRINT    MEMPREPERR
+                jmp         HALT
+;
+.DosMemReady:   mov         ax,BIOSDATASEG
                 mov         ds,ax
                 mov         ax,[ds:bdEQUIPMENT]         ; get system configuration
                 mov         cl,4
@@ -890,7 +911,7 @@ IPLBOOT:        mov         ax,BIOSDATASEG
 ;   *********************************
 ;
 ;-----------------------------------------------;
-; this is a temporatry interrupt service        ;
+; this is a temporary interrupt service        ;
 ; routine.                                      ;
 ; it will service unused interrupt vectors.     ;
 ; location 'dbINRTFLAG' will contain either the ;
@@ -941,7 +962,7 @@ SWINT:          mov         byte [ds:bdINRTFLAG],ah     ; Save last nonsense int
 ;
 INT02:          push        ax
                 in          al,PPIPC                    ; read NMI source
-                test        al,11000000b                ; is it memory or IO channle parity error?
+                test        al,11000000b                ; is it memory or IO channel parity error?
                 jnz         NMIPARITYERR                ; send error message
                 jmp         INT02EXIT                   ; nothing here, exit
 NMIPARITYERR:   mcrPRINT    PARITYERR                   ; print parity error message
@@ -979,7 +1000,7 @@ INT08:          push        ds
                 mov         word [ds:bdTIMEHI],0        ; reset day's hour counter
                 mov         byte [ds:bdNEWDAY],1        ; new day
 ;
-USERSERVICE:    sti                                     ; reenable interrupts
+USERSERVICE:    sti                                     ; re-enable interrupts
                 int         1ch                         ; invoke user interrupt service
 ;
                 mov         al,byte [ds:bdTIMELOW]      ; blink status LED every 8 cycles, will yield about 1Hz blink rate
@@ -999,10 +1020,10 @@ DPNOCHANGE:     mov         al,EOI                      ; Send end-of-interrupt 
                 iret
 ;
 ;----- INT 09 (IRQ1) ---------------------------;
-; Keyboard controller interrupt input serive.   ;
+; Keyboard controller interrupt input service.  ;
 ; The service will accept a scan code byte      ;
 ; from the keyboard interface, match an ASCII   ;
-; code to the scane code, and place then in the ;
+; code to the scan code, and place then in the  ;
 ; keyboard buffer.                              ;
 ; The service will also update BIOS flags       ;
 ; for shift, Ctrl, and Alt keys                 ;
@@ -1048,7 +1069,7 @@ INT09:          sti
                 jne         .TestLShift
                 test        ah,KBD_BREAK_CODE           ; check if this is a break
                 jnz         .RShiftBreak
-                or          byte [ds:bdSHIFT],KBD_FLAG_RSHFT ; turn 'o'n on make code
+                or          byte [ds:bdSHIFT],KBD_FLAG_RSHFT ; turn 'on' on make code
                 jmp         .Exit
 .RShiftBreak:   and         byte [ds:bdSHIFT],~KBD_FLAG_RSHFT ; turn 'off' on break code
                 jmp         .Exit
@@ -1082,7 +1103,7 @@ INT09:          sti
 ;
 ;-----  lock keys: NumLock, CapsLock, ScrollLock, Insert
 ;
-.TestCapsLck:   cmp         al,KBD_CAPSLOCK             ; Caps Num and Scroll lock are tocggles
+.TestCapsLck:   cmp         al,KBD_CAPSLOCK             ; Caps, Num, and Scroll lock are toggles
                 jne         .TestNumLck                 ; check for these scan codes
                 test        ah,KBD_BREAK_CODE           ; don't care about break code
                 jnz         .Exit
@@ -1116,12 +1137,12 @@ INT09:          sti
                 test        byte [ds:bdSHIFT],KBD_FLAG_NMLCK ; check if Num Lock is 'on'
                 jnz         .KeyPadXlate                ; if it is, translate key pad to num-keys
 ;
-.InsertKey:     cmp         al,KBD_INSERT               ; special hanlding for Insert
+.InsertKey:     cmp         al,KBD_INSERT               ; special handling for Insert
                 jne         .DelKey                     ; not insert, check 'Delete'
                 xor         byte [ds:bdSHIFT],KBD_FLAG_INS ; toggle 'insert' flag
                 jmp         .AlphaCodes                 ; process as alpha codes from code tables
 ;
-.DelKey:        cmp         al,KBD_DELETE               ; special hanlding for Delete
+.DelKey:        cmp         al,KBD_DELETE               ; special handling for Delete
                 je          .SpecialFunc                ; if it is Delete, first check for Ctrl-Alt-Del
                 jmp         .AlphaCodes                 ; process as alpha codes from code tables
 ;
@@ -1139,12 +1160,12 @@ INT09:          sti
                 cmp         ah,(KBD_FLAG_CTRL+KBD_FLAG_ALT) ; are Ctrl+Alt depressed
                 jne         .Break                      ; no, check Ctrl-Break
                 cmp         al,KBD_DELETE               ; we have Ctrl+Alt, is Delete pressed?
-                jne         .Exit                       ; no Delete, exist, no handleing for other Ctrl+Alt
+                jne         .Exit                       ; no Delete, exist, no handling for other Ctrl+Alt
                 mov         word [ds:bdBOOTFLAG],1234h  ; flag warm start
                 jmp         WARM                        ; restart system
 ;
 .Break:         test        byte [ds:bdSHIFT],KBD_CTRL
-                jne         .AlphaCodes                 ; Ctrl not perssed, process codes below
+                jne         .AlphaCodes                 ; Ctrl not pressed, process codes below
                 cmp         al,KBD_BREAK                ; Ctrl is pressed, is this a Break key?
                 jne         .AlphaCodes                 ; not Break, so move on
                 mov         bx,[ds:bdKEYBUFSTART]       ; reset keyboard buffer
@@ -1188,14 +1209,14 @@ INT09:          sti
 ;
 .CapsLock:      test        byte [ds:bdSHIFT],KBD_FLAG_CPLCK ; check caps lock if we need to change letters' case
                 jz          .FillBuffer
-                mov         bl,al                       ; get the ascii code
+                mov         bl,al                       ; get the ASCII code
                 and         bl,0dfh                     ; this will convert any letters to "upper case"
-                cmp         bl,"A"                      ; chech range 'A to Z'
-                jb          .FillBuffer                 ; ascii was less than 'a' or 'A', caps lock has no effect
-                cmp         bl,"Z"                      ; check for ascii above 'z' or 'Z'
-                ja          .FillBuffer                 ; ascii was over 'z' or Z', caps lock has no effect
+                cmp         bl,"A"                      ; check range 'A to Z'
+                jb          .FillBuffer                 ; ASCII was less than 'a' or 'A', caps lock has no effect
+                cmp         bl,"Z"                      ; check for ASCII above 'z' or 'Z'
+                ja          .FillBuffer                 ; ASCII was over 'z' or Z', caps lock has no effect
 ;                                                         at this point we know that caps-lock is 'on' and we have a letter
-                xor         al,20h                      ; convert uppoer case to lower and vice versa
+                xor         al,20h                      ; convert upper case to lower and vice versa
 ;                                                         covert to upper case for Caps Lock, or negate it if shift is 'on' too
 ;
 .FillBuffer:
@@ -1244,7 +1265,7 @@ INT09:          sti
                 iret
 ;
 ;----- INT 0B (IRQ3) ---------------------------;
-; COM2 interrupt serice.                        ;
+; COM2 interrupt service.                       ;
 ; This service will support Z80-SIO channel A   ;
 ; interrupt.                                    ;
 ;                                               ;
@@ -1262,9 +1283,6 @@ INT0B:          push        ax
 ;
 ;----- INT 0C (IRQ4) ---------------------------;
 ; UART input (Rx) service interrupt routine.    ;
-; The service will accept a byte  from the     ;
-; UART and place it in the keyboard             ;
-; buffer.                                       ;
 ;                                               ;
 ; entry:                                        ;
 ;   NA                                          ;
@@ -1272,52 +1290,9 @@ INT0B:          push        ax
 ;   All work registers are preserved            ;
 ;-----------------------------------------------;
 ;
-INT0C:          sti                                     ; enable interrupts
-                push        ax
-                push        bx
-                push        cx
-                push        dx
-                push        di
-                push        ds                          ; save work registers
-;
-;-----  check UART receive buffer and read character if available
-;
-                mov         dx,IIR
-                in          al,dx                       ; read IIR to determine interrupt type
-                and         al,00000111b                ; is there an interrupt waiting for service
-                cmp         al,00000100b                ; and is it for a received character?
-                jnz         .int0Cexit                  ; no, then exit
-                mov         dx,RBR
-                in          al,dx                       ; yes, read character from UART receiver buffer
-;
-;-----  store character in keyboard buffer
-;
-                mov         bx,BIOSDATASEG
-                mov         ds,bx                       ; set DS to BIOS data structure segment
-                mov         bx,[ds:bdKEYBUFTAIL]        ; get buffer write pointer
-                mov         di,bx                       ; save it
-                inc         bx                          ; next position
-                cmp         bx,[ds:bdKEYBUFEND]         ; is this end of buffer?
-                jne         .NotEnd                     ;  no, skip
-                mov         bx,[ds:bdKEYBUFSTART]       ;  yes, reset write pointer (circular buffer)
-.NotEnd:        cmp         bx,[ds:bdKEYBUFHEAD]        ; is write pointer same as read pointer?
-                jne         .NoOverRun                  ;  no, skip as there is no overrun
-                mov         cx,750                      ; 500Hz beep
-                mov         bl,16                       ; 1/4 sec duration
-                call        BEEP                        ; yes, beep speaker
-                jmp         .int0Cexit                  ; and exit
-.NoOverRun:     mov         [ds:di],al                  ; store in buffer
-                mov         [ds:bdKEYBUFTAIL],bx        ; update write pointer
-;
-;-----  epilog
-;
-.int0Cexit:     mov         al,EOI                      ; Send end-of-interrupt code
+INT0C:          push        ax
+                mov         al,EOI                      ; Send end-of-interrupt code
                 out         OCW2,al
-                pop         ds                          ; restore work registers
-                pop         di
-                pop         dx
-                pop         cx
-                pop         bx
                 pop         ax
                 iret
 ;
@@ -1341,7 +1316,7 @@ INT0D:          push        ax
 ;----- INT 10 ----------------------------------;
 ; video service interrupt routine               ;
 ; partial implementation of INT 10 functions    ;
-; as apropriate to use with a UART console.     ;
+; as appropriate to use with a UART console.    ;
 ; unused functions are ignored or return dummy  ;
 ; data for compatibility                        ;
 ;                                               ;
@@ -1394,7 +1369,7 @@ INT0D:          push        ax
 ;       CX = count to write (CX >= 1)           ;
 ;   returns nothing                             ;
 ;    - does not move the cursor                 ;
-;   AH = 0ah write char at curson position      ;
+;   AH = 0ah write char at cursor position      ;
 ;   AH = 0Eh write TTY to active page           ;
 ;       AL character ASCII                      ;
 ;       (all other input ignored)               ;
@@ -1413,7 +1388,7 @@ INT0D:          push        ax
 ;       AL    00h write string                  ;
 ;           <char><char>...                     ;
 ;       BL attribute (ignored)                  ;
-;           cursonr not moved (ignored)         ;
+;           cursor not moved (ignored)          ;
 ;       AL    01h same as 00h move cursor       ;
 ;       AL    02h write char and attr.          ;
 ;           <char><attr><char><attr>...         ;
@@ -1443,10 +1418,10 @@ INT10JUMPTBL:   dw          (INT10F00+ROMOFF)           ; * 00h     - set CRT mo
                 dw          (INT10F07+ROMOFF)           ; * 07h     - scroll active page down
                 dw          (INT10F08+ROMOFF)           ; * 08h     - read attribute/character at cursor
                 dw          (INT10F09+ROMOFF)           ; * 09h     - write attribute/character at cursor
-                dw          (INT10F0A+ROMOFF)           ; * 0ah     - write character at curson position
+                dw          (INT10F0A+ROMOFF)           ; * 0ah     - write character at cursor position
                 dw          (INT10F0B+ROMOFF)           ; * 0bh     - set color palette
-                dw          (INT10IGNORE+ROMOFF)        ;   0ch     - write pixel
-                dw          (INT10IGNORE+ROMOFF)        ;   0dh     - read pixel
+                dw          (INT10F0C+ROMOFF)           ; * 0ch     - write pixel
+                dw          (INT10F0D+ROMOFF)           ; * 0dh     - read pixel
                 dw          (INT10F0E+ROMOFF)           ; * 0eh     - write character to page
                 dw          (INT10F0F+ROMOFF)           ; * 0fh     - return current video state
                 dw          (INT10F10+ROMOFF)           ; . 10h     - Set/Get Palette Registers (EGA/VGA)
@@ -1473,7 +1448,7 @@ INT10OK:        push        si
                 mov         si,ax                       ; save function and command in SI
                 mov         al,ah
                 xor         ah,ah                       ; AX has function number
-                sal         ax,1                        ; conert to jump table index
+                sal         ax,1                        ; convert to jump table index
                 xchg        si,ax                       ; restore function/command and move jump index to SI
                 call        word [cs:(si+INT10JUMPTBL+ROMOFF)]  ; call function using jump table
                 pop         si
@@ -1547,13 +1522,12 @@ INT10F03:       push        ax
 ;-----------------------------------------------;
 ;
 INT10F05:       push        ax
+                push        bx
                 push        si
                 push        ds
 ;
-                push        ax
-                mov         ax,BIOSDATASEG
-                mov         ds,ax                       ; establish segment of BIOS data
-                pop         ax
+                mov         bx,BIOSDATASEG
+                mov         ds,bx                       ; establish segment of BIOS data
 ;
                 mov         byte [ds:bdVIDEOPAGE],al    ; save video page in 40:62
 ;
@@ -1568,6 +1542,7 @@ INT10F05:       push        ax
 ;
                 pop         ds
                 pop         si
+                pop         bx
                 pop         ax
                 ret
 ;
@@ -1577,8 +1552,6 @@ INT10F05:       push        ax
 ;
 INT10F06:       push        ax
                 push        bx
-                push        cx
-                push        dx
                 push        si
                 push        ds
 ;
@@ -1599,8 +1572,6 @@ INT10F06:       push        ax
 ;
                 pop         ds
                 pop         si
-                pop         dx
-                pop         cx
                 pop         bx
                 pop         ax
                 ret
@@ -1611,8 +1582,6 @@ INT10F06:       push        ax
 ;
 INT10F07:       push        ax
                 push        bx
-                push        cx
-                push        dx
                 push        si
                 push        ds
 ;
@@ -1627,14 +1596,12 @@ INT10F07:       push        ax
                 mov         byte [ds:si+3],ch           ; top left row
                 mov         byte [ds:si+4],dl           ; bottom right col
                 mov         byte [ds:si+5],dh           ; bottom right row
-                mov         byte [ds:si+6],bh           ; blank lineattribute
+                mov         byte [ds:si+6],bh           ; blank line attribute
 ;
                 call        RPIVGACMDTX                 ; send the command
 ;
                 pop         ds
                 pop         si
-                pop         dx
-                pop         cx
                 pop         bx
                 pop         ax
                 ret
@@ -1643,10 +1610,7 @@ INT10F07:       push        ax
 ; INT10, 08h - read ASCII and attr. at cursor   ;
 ;-----------------------------------------------;
 ;
-INT10F08:       push        bx
-                push        cx
-                push        dx
-                push        si
+INT10F08:       push        si
                 push        ds
 ;
                 mov         ax,BIOSDATASEG
@@ -1671,12 +1635,9 @@ INT10F08:       push        bx
                 mov         word [ds:si+5],0
 ;
                 call        RPIVGACMDTX                 ; send the command
-;
+;                                                         AX is returned with character and attribute code
                 pop         ds
                 pop         si
-                pop         dx
-                pop         cx
-                pop         bx
                 ret
 ;
 ;-----------------------------------------------;
@@ -1689,7 +1650,6 @@ INT10F0A:       jcxz        .Exit                       ; exit immediately if CX
                 push        ax
                 push        bx
                 push        cx
-                push        dx
                 push        si
                 push        ds
 ;
@@ -1729,7 +1689,6 @@ INT10F0A:       jcxz        .Exit                       ; exit immediately if CX
                 pop         si
                 pop         dx
                 pop         cx
-                pop         bx
                 pop         ax
 .Exit:          ret
 ;
@@ -1748,6 +1707,17 @@ INT10F0B:       call        RPIVGAISTEXT                ; check if we are in tex
                 mov         ax,BIOSDATASEG
                 mov         ds,ax
                 mov         [ds:bdCGAPALETTE],bl        ; save pallet
+;
+                push        si
+                mov         si,bdRPIVGACMD
+                mov         byte [ds:si],RPIVGAPALETTE  ; set palette
+                mov         [ds:si+1],bx                ; palette
+                mov         word [ds:si+3],0
+                mov         word [ds:si+5],0
+;
+                call        RPIVGACMDTX                 ; send the command
+                pop         si
+;
                 jmp         .Done
 ;
 .SetBackground: nop                                     ; TODO set background color BL in graphics mode
@@ -1761,16 +1731,60 @@ INT10F0B:       call        RPIVGAISTEXT                ; check if we are in tex
 ; INT10, 0Ch - Write pixel at coordinate        ;
 ;-----------------------------------------------;
 ;
+INT10F0C:       push        ax
+                push        si
+                push        ds
+;
+                push        bx
+                mov         bx,BIOSDATASEG
+                mov         ds,bx
+                pop         bx
+                mov         si,bdRPIVGACMD
+;
+                mov         byte [ds:si],RPIVGAPUTPIX   ; put pixel
+                mov         [ds:si+1],bh                ; page
+                mov         [ds:si+2],al                ; color
+                mov         [ds:si+3],cx                ; column
+                mov         [ds:si+5],dx                ; row
+;
+                call        RPIVGACMDTX                 ; send the command
+;
+.Exit:          pop         ds
+                pop         si
+                pop         ax
+                ret
 ;
 ;-----------------------------------------------;
 ; INT10, 0Dh - Read pixel at coordinate         ;
 ;-----------------------------------------------;
 ;
+INT10F0D:       push        si
+                push        ds
+;
+                push        ax
+                mov         ax,BIOSDATASEG
+                mov         ds,ax
+                pop         ax
+                mov         si,bdRPIVGACMD
+;
+                mov         byte [ds:si],RPIVGAGETPIX   ; get pixel
+                mov         [ds:si+1],bh                ; page
+                mov         byte [ds:si+2],0
+                mov         [ds:si+3],cx                ; column
+                mov         [ds:si+5],dx                ; row
+;
+                call        RPIVGACMDTX                 ; send the command
+                mov         ah,0dh                      ; restore INT function to AH
+;                                                         AL has color value of pixel
+;
+.Exit:          pop         ds
+                pop         si
+                ret
 ;
 ;-----------------------------------------------;
 ; INT10, 0eh - Write text in Teletype mode      ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL character ASCII                          ;
 ;   BH page                                     ;
 ;   BL foreground color in graphics mode        ;
@@ -1778,7 +1792,7 @@ INT10F0B:       call        RPIVGAISTEXT                ; check if we are in tex
 ;   All work registers saved                    ;
 ;-----------------------------------------------;
 ;
-INT10F0E:       call        RPIVGAPUTTTY
+INT10F0E:       call        RPIVGAPUTTTY                ; TODO maybe just call 'PRINTCHAR'?
                 ret
 ;
 ;-----------------------------------------------;
@@ -1833,7 +1847,6 @@ INT10F13:       cmp         al,4                        ; is the command valid?
                 shl         ax,1
                 add         ax,bdCURSPOS0
                 mov         si,ax                       ; SI points to page's cursor position
-                mov         dx,[ds:si]                  ; DX has cursor position on page
                 pop         ax
 ;
                 mov         ah,al                       ; AH is write mode
@@ -1853,11 +1866,10 @@ INT10F13:       cmp         al,4                        ; is the command valid?
                 jb          .SetCursorPos               ; no, set new location
                 xor         dl,dl                       ; yes, move to start of line
                 jmp         .LineFeed                   ; and next line
-                jmp         .SetCursorPos
 ;
 ;-----  handle special characters
 ;
-.CheckCR:       cmp         al,CR                       ; handle Carriege Return (CR)
+.CheckCR:       cmp         al,CR                       ; handle Carriage Return (CR)
                 jne         .CheckLF
                 xor         dl,dl                       ; CR moves cursor to start of row
                 jmp         .SetCursorPos
@@ -1868,7 +1880,6 @@ INT10F13:       cmp         al,4                        ; is the command valid?
                 cmp         dh,[ds:bdCRTROW]
                 jb          .SetCursorPos
                 dec         dh
-                nop                                     ; TODO turn off cursor and back on after scroll?
                 call        RPIVGASCRNUP                ; scroll the entire screen up
                 jmp         .SetCursorPos
 ;
@@ -1918,7 +1929,7 @@ INT10F13:       cmp         al,4                        ; is the command valid?
 ; INT 10, 1ah - Get video Display Combination   ;
 ;-----------------------------------------------;
 ;
-INT10F1A:       mov         al,0                        ; respond with 'invalid' reqeust
+INT10F1A:       mov         al,0                        ; respond with 'invalid' request
                 ret                                     ; this function is implemented to satisfy Minix Monitor
 ;
 ;-----------------------------------------------;
@@ -1930,7 +1941,7 @@ INT10IGNORE:
 ;
                 mcrDBGPRINT INT10DBG                    ; print unhandled function code
                 xchg        al,ah
-                call        PRINTHEXB
+                call        DEBUGHEXB
                 xchg        ah,al
                 mcrDBGPRINT CRLF
                 call        DEBUGREGS                   ; print register contents
@@ -1971,7 +1982,7 @@ INT12:          sti
                 push        ds
                 mov         ax,BIOSDATASEG              ; establish segment of BIOS data structure
                 mov         ds,ax
-                mov         ax,[ds:bdMEMSIZE]           ; get momory size in KB
+                mov         ax,[ds:bdMEMSIZE]           ; get memory size in KB
                 pop         ds
                 iret
 ;
@@ -1990,7 +2001,7 @@ INT12:          sti
 ;   CF = 0 if successful                                                    ;
 ;      = 1 if error                                                         ;
 ;                                                                           ;
-;   NOTE: IBM BIOS does not need DL as drive ID. other BIOD documentation   ;
+;   NOTE: IBM BIOS does not need DL as drive ID. other BIOS documentation   ;
 ;   does have DL as an input parameter. this implementation ignores DL      ;
 ;                                                                           ;
 ; AH = 01 - Disk Status                                                     ;
@@ -2296,7 +2307,7 @@ INT13JUMPTBL:   dw          (INT13F00+ROMOFF)           ;   00h *   - Reset disk
                 dw          (INT13IGNORE+ROMOFF)        ;   0eh     - Read sector buffer (XT & portable only)
                 dw          (INT13IGNORE+ROMOFF)        ;   0fh     - Write sector buffer (XT & portable only)
                 dw          (INT13IGNORE+ROMOFF)        ;   10h     - Test for drive ready (XT & newer)
-                dw          (INT13IGNORE+ROMOFF)        ;   11h     - Recalibrate drive (XT & newer)
+                dw          (INT13IGNORE+ROMOFF)        ;   11h     - Re-calibrate drive (XT & newer)
                 dw          (INT13IGNORE+ROMOFF)        ;   12h     - Controller ram diagnostic (XT & portable only)
                 dw          (INT13IGNORE+ROMOFF)        ;   13h     - Drive diagnostic (XT & portable only)
                 dw          (INT13IGNORE+ROMOFF)        ;   14h     - Controller internal diagnostic (XT & newer)
@@ -2325,7 +2336,20 @@ INT13:          sti                                     ; enable interrupts
                 stc
                 jmp         .int_13_exit
 ;
-.int_13_ok:     push        si
+.int_13_ok:
+;
+%if (DebugConsole && INT13_Debug)
+;
+                push        ax
+                mcrDBGPRINT INT13FNC
+                xchg        al,ah                       ; print INT 13h function code
+                call        DEBUGHEXB
+                xchg        al,ah
+                call        DEBUGREGS                   ; print register contents
+                pop         ax
+;
+%endif
+                push        si
                 mov         si,ax                       ; save function and command in SI
                 mov         al,ah
                 xor         ah,ah                       ; AX has function number
@@ -2345,6 +2369,14 @@ INT13:          sti                                     ; enable interrupts
                 mov         byte [ds:bdDRIVESTATUS1],ah ; store last status
                 mov         byte [ds:bdDRIVESTATUS2],ah
                 pop         ds
+;
+%if (DebugConsole && INT13_Debug)
+;
+                pushf                                   ; protect exit status in Cy.f
+                call        DEBUGREGS                   ; print register contents
+                popf
+;
+%endif
 ;
                 retf        2                           ; return and discard saved flags
 ;
@@ -2476,7 +2508,7 @@ F03WRDATA:      pop         dx
                 pop         ax
                 call        IDEWRITE                    ; write data to drive
                 jnc         F03WRITEOK                  ; no write errors
-                mov         ah,INT13TOVERR              ; indicate 'time out, drive not ready' (could be something else, but all other causes elimnated before)
+                mov         ah,INT13TOVERR              ; indicate 'time out, drive not ready' (could be something else, but all other causes eliminated before)
                 mov         al,0                        ; nothing written
                 stc
                 jmp         F03EXIT                     ; write failed, exit with error
@@ -2505,7 +2537,7 @@ INT13F05:       push        bx
                 push        di
                 push        es
 ;
-                call        CHECKDRV                    ; check drive ID and point to drive data drive is valid
+                call        CHECKDRV                    ; check drive ID and point to drive data if drive is valid
                 jnc         F05VALIDDRV
                 mov         ah,INT13BADCMD              ; signal 'bad parameter' error
                 stc
@@ -2641,7 +2673,7 @@ INT13IGNORE:
 ;
                 mcrDBGPRINT INT13DBG                    ; print unhandled function code
                 xchg        al,ah
-                call        PRINTHEXB
+                call        DEBUGHEXB
                 xchg        ah,al
                 mcrDBGPRINT CRLF
                 call        DEBUGREGS                   ; print register contents
@@ -2676,7 +2708,7 @@ INT15:          stc                                     ; set carry flag
 ;----- INT 16 ----------------------------------;
 ; keyboard service interrupt routine            ;
 ; partial implementation of INT 16 functions    ;
-; as apropriate to use with a UART console.     ;
+; as appropriate to use with a UART console.    ;
 ; unused functions are ignored or return dummy  ;
 ; data for compatibility                        ;
 ;                                               ;
@@ -2726,7 +2758,7 @@ INT16:          sti                                     ; enable other interrupt
 %if (DebugConsole && INT16_Debug)
                 mcrDBGPRINT INT16DBG                    ; print unhandled function code
                 xchg        al,ah
-                call        PRINTHEXB
+                call        DEBUGHEXB
                 xchg        ah,al
                 mcrDBGPRINT CRLF
                 call        DEBUGREGS                   ; print register contents
@@ -2742,7 +2774,7 @@ INT16READ:      cli                                     ; disable interrupts whi
                 mov         bx,[ds:bdKEYBUFHEAD]        ; get buffer head pointer
                 cmp         bx,[ds:bdKEYBUFTAIL]        ; compare to buffer tail pointer
                 jne         READBUFFER                  ; character to read from buffer
-                sti                                     ; reenable interrupts
+                sti                                     ; re-enable interrupts
                 jmp         INT16READ                   ; loop until something is typed
 READBUFFER:     mov         ax,[ds:bx]                  ; get the Scan code and ASCII into AX
                 inc         bx                          ; point to next buffer position
@@ -2761,7 +2793,7 @@ INT16STATUS:    cli                                     ; disable interrupts whi
                 cmp         bx,[ds:bdKEYBUFTAIL]        ; compare to buffer tail pointer, if equal then nothing there (Z.f=1)
                 pushf                                   ; save the flags (Z.f)
                 mov         ax,[ds:bx]                  ; get the Scan Code and ASCII of last character into AX
-                sti                                     ; reenable interrupts
+                sti                                     ; re-enable interrupts
                 popf                                    ; restore flags (and Z.f)
                 pop         bx                          ; restore
                 pop         ds                          ; registers
@@ -2866,7 +2898,7 @@ INT19ERREXIT:   mcrPRINT    IPLFAILMSG                  ; print IPL fail message
 ;       CX high portion of count                ;
 ;       DX low portion of count                 ;
 ;       AL '0' not passed 24hr since last read  ;
-;          '1' passed 24hr, reaset after read   ;
+;          '1' passed 24hr, reset after read    ;
 ;   AH = 01h set clock                          ;
 ;       CX high count                           ;
 ;       DX low count                            ;
@@ -2904,7 +2936,7 @@ INT1A01:        mov         [ds:bdTIMEHI],cx            ; set time
                 mov         byte [ds:bdNEWDAY],0
                 clc
 ;
-INT1ADONE:      sti                                     ; reenable interrupts and return
+INT1ADONE:      sti                                     ; re-enable interrupts and return
                 pop         ds
                 iret
 ;
@@ -2931,9 +2963,12 @@ INT1C:          iret
 ; this routing transmits a single byte through  ;
 ; the SIO ch.A USART.                           ;
 ; The routine waits until the transmit buffer   ;
-; is clear/ready and then sends the byte        ;
+; is clear/ready and then sends the byte.       ;
+; the routine is tailored for a debug console   ;
+; function and may not be suitable for general  ;
+; use.                                          ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL byte to transmit                         ;
 ; exit:                                         ;
 ;   All work registers saved                    ;
@@ -2946,11 +2981,10 @@ SIOATX:         push        dx
 .WaitTxEmpty:   mov         al,00010000b                ; reset external/status interrupt and RR0/WR0 select
                 out         dx,al
                 in          al,dx                       ; read RR0
-                and         al,SIORR0CTSTX
-                xor         al,SIORR0CTSTX              ; test for Tx empty *and* CTS
-                jnz         .WaitTxEmpty                ; if either one of these flags is '0' keep waiting
+                test        al,SIORR0TXEMPYC            ; test for Tx empty
+                jz          .WaitTxEmpty                ; if flags is '0' keep waiting
                 dec         dx
-                dec         dx                          ; point to SIOB data register
+                dec         dx                          ; point to SIOA data register
                 pop         ax                          ; restore byte to send
                 out         dx,al                       ; send
 ;
@@ -2963,7 +2997,7 @@ SIOATX:         push        dx
 ; The routine waits until the transmit buffer   ;
 ; is clear/ready and then sends the byte        ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL byte to transmit                         ;
 ; exit:                                         ;
 ;   All work registers saved                    ;
@@ -2995,7 +3029,7 @@ SIOBTX:         push        dx
 ;                                               ;
 ; NOTE: polling with no timeout (TODO)!!!       ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL byte received                            ;
 ; exit:                                         ;
 ;   All work registers saved                    ;
@@ -3033,7 +3067,7 @@ SIOBRX:         push        dx
 ;                    AL = color of pixel read   ;
 ; - For command #255: AH = 0, AL = 0.           ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   SI offset to buffer                         ;
 ;   DS segment address of buffer                ;
 ; exit:                                         ;
@@ -3045,7 +3079,6 @@ SIOBRX:         push        dx
 ;
 RPIVGACMDTX:    push        bx
                 push        cx
-                push        si
 ;
                 mov         bl,[ds:si]                  ; save the command code for later
 ;
@@ -3103,8 +3136,7 @@ RPIVGACMDTX:    push        bx
                 jmp         .Exit
 .ExitErr:       stc
 ;
-.Exit:          pop         si
-                pop         cx
+.Exit:          pop         cx
                 pop         bx
                 ret
 ;
@@ -3112,10 +3144,10 @@ RPIVGACMDTX:    push        bx
 ; this routing returns the type of active mode  ;
 ; to be 'text' or 'graphics'                    ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   none                                        ;
 ; exit:                                         ;
-;   CY.f=1 text mode, CY.f=0 grapics mode       ;
+;   CY.f=1 text mode, CY.f=0 graphics mode      ;
 ;   All work registers saved                    ;
 ;-----------------------------------------------;
 ;
@@ -3154,7 +3186,7 @@ RPIVGAISTEXT:   push        ax
 ; to RPi and canges BIOS data area to reflect   ;
 ; new mode setting.                             ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL valid video mode number                  ;
 ; exit:                                         ;
 ;   CY.f=0 ok, CY.f=1 error                     ;
@@ -3227,7 +3259,7 @@ RPIVGAVIDMODE:  push        ax
 ; CR, LF, BS, TAB etc. These need to be handled ;
 ; properly by the calling routine.              ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL character code                           ;
 ;   BH page                                     ;
 ;   DH cursor row                               ;
@@ -3271,22 +3303,22 @@ RPIVGAPUTCHAR:  push        dx
 ; CR, LF, BS, TAB etc. These need to be handled ;
 ; properly by the calling routine.              ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL character code                           ;
 ;   BH page                                     ;
-;   BL attribute/color
+;   BL attribute/color                          ;
 ;   DH cursor row                               ;
 ;   DL cursor column                            ;
 ; exit:                                         ;
 ;   All work registers saved                    ;
 ;-----------------------------------------------;
 ;
-RPIVGAPUTCATT:  push        dx
+RPIVGAPUTCATT:  push        cx
                 push        si
                 push        ds
 ;
-                mov         dx,BIOSDATASEG
-                mov         ds,dx                       ; segment pointer to BIOS data
+                mov         cx,BIOSDATASEG
+                mov         ds,cx                       ; segment pointer to BIOS data
 ;
                 mov         si,bdRPIVGACMD
                 mov         byte [ds:si],RPIVGAPUTCHATT ; put character and attribute
@@ -3296,20 +3328,20 @@ RPIVGAPUTCATT:  push        dx
                 mov         byte [ds:si+5],0
                 mov         [ds:si+6],bl                ; attribute/color
 ;
-                mov         dx,ax                       ; save AL
+                mov         cx,ax                       ; save AL
                 call        RPIVGACMDTX                 ; send the command
-                mov         ax,dx
+                mov         ax,cx                       ; not expecting response for this command
 ;
                 pop         ds
                 pop         si
-                pop         dx
+                pop         cx
                 ret
 ;
 ;-----------------------------------------------;
 ; this routing scrolls the entire RPi VGA       ;
 ; emulator screen one text row up.              ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   BL attribute or color of blank line         ;
 ;      (unlike INT10, 06h and 07h where attrib. ;
 ;       is in BH)                               ;
@@ -3348,7 +3380,7 @@ RPIVGASCRNUP:   push        ax
 ; this routing send the cursor position to the  ;
 ; RPi VGA emulator.                             ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   BH page                                     ;
 ;   DH cursor row                               ;
 ;   DL cursor column                            ;
@@ -3384,9 +3416,9 @@ RPIVGAMOVCURS:  push        ax
 ; CR, LF, BS, TAB etc. are handled and cursor   ;
 ; position and output locations are managed.    ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL character code                           ;
-;   BL Color (only in graphic mode)             ;
+;   BL Attribute or Color in graphic mode       ;
 ;   BH Page Number                              ;
 ; exit:                                         ;
 ;   All work registers saved                    ;
@@ -3419,17 +3451,16 @@ RPIVGAPUTTTY:   push        bx
                 jc          .TextMode1
                 call        RPIVGAPUTCATT               ; print character and attribute/color
                 jmp         .AdjustPos
-.TextMode1:     call        RPIVGAPUTCHAR               ; print character using existing text attribue
+.TextMode1:     call        RPIVGAPUTCHAR               ; print character using existing text attribute
 .AdjustPos:     inc         dl                          ; move cursor to next column
                 cmp         dl,[ds:bdCRTCOL]            ; area we off screen limit?
                 jb          .SetCursorPos               ; no, set new location
                 xor         dl,dl                       ; yes, move to start of line
                 jmp         .LineFeed                   ; and move to next line
-                jmp         .SetCursorPos
 ;
 ;-----  handle special characters
 ;
-.CheckCR:       cmp         al,CR                       ; handle Carriege Return (CR)
+.CheckCR:       cmp         al,CR                       ; handle Carriage Return (CR)
                 jne         .CheckLF
                 xor         dl,dl                       ; CR moves cursor to start of row
                 jmp         .SetCursorPos
@@ -3440,7 +3471,6 @@ RPIVGAPUTTTY:   push        bx
                 cmp         dh,[ds:bdCRTROW]
                 jb          .SetCursorPos
                 dec         dh
-                nop                                     ; TODO turn off cursor and back on after scroll?
                 call        RPIVGASCRNUP                ; scroll the entire screen up
                 jmp         .SetCursorPos
 ;
@@ -3454,7 +3484,7 @@ RPIVGAPUTTTY:   push        bx
                 jc          .TextMode2
                 call        RPIVGAPUTCATT               ; print character and attribute/color
                 jmp         .SetCursorPos
-.TextMode2:     call        RPIVGAPUTCHAR               ; print character using existing text attribue
+.TextMode2:     call        RPIVGAPUTCHAR               ; print character using existing text attribute
                 jmp         .SetCursorPos
 ;
 .CheckBELL:     cmp         al,BELL                     ; handle Bell sound
@@ -3487,7 +3517,7 @@ RPIVGAPUTTTY:   push        bx
 ; transmit buffer is clear/ready and then sends ;
 ; the byte                                      ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL byte to transmit                         ;
 ; exit:                                         ;
 ;   DX, AH used                                 ;
@@ -3507,7 +3537,7 @@ WAITTHR:        in          al,dx                       ; read LSR
 ; this routing transmits a string to UART.      ;
 ; The string must be '0' terminated.            ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   SI offset to string                         ;
 ;   DS segment address of string                ;
 ; exit:                                         ;
@@ -3521,7 +3551,7 @@ PRINTSTZ:       push        ax
 CHARTXLOOP:     lodsb                                   ; get character from string
                 cmp         al,0                        ; is it '0' ('0' signals end of string)?
                 je          STRINGEND                   ; yes, then done
-                call        RPIVGAPUTTTY                ; no, transmit the character byte
+                call        PRINTCHAR                   ; no, transmit the character byte
                 jmp         CHARTXLOOP                  ; loop for next character
 STRINGEND:      pop         si                          ; restore registers and return
                 pop         bx
@@ -3532,7 +3562,7 @@ STRINGEND:      pop         si                          ; restore registers and 
 ; this routine prints to console the ASCII code ;
 ; passed to it in AL                            ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AL ASCII code to transmit                   ;
 ; exit:                                         ;
 ;   all work registers saved                    ;
@@ -3540,7 +3570,10 @@ STRINGEND:      pop         si                          ; restore registers and 
 ;
 PRINTCHAR:      push        bx
                 xor         bx,bx                       ; default page 0 and no color
-                call        RPIVGAPUTTTY                ; print character from AL
+                call        RPIVGAISTEXT                ; check if we are in text mode
+                jnc         .NotTextMode
+                mov         bl,7                        ; in text mode use 'normal' attribute
+.NotTextMode:   call        RPIVGAPUTTTY                ; print character from AL
                 pop         bx
                 ret
 ;
@@ -3552,7 +3585,7 @@ PRINTCHAR:      push        bx
 ; keeps the remainder as the 1's 10's 100's...  ;
 ; digit                                         ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AX number to convert and print              ;
 ; exit:                                         ;
 ;   all work registers saved                    ;
@@ -3566,15 +3599,14 @@ PRINTDEC:       push        ax
                 mov         cx,0                        ; initialize digit counter
 DECIMALLOOP:    xor         dx,dx
                 div         bx                          ; divide by 10, remainder is decimal digit
-                add         dx,('0')                    ; conver remainder to ASCII
+                add         dx,('0')                    ; convert remainder to ASCII
                 push        dx                          ; save digit to print later
                 inc         cx                          ; increment digit counter
                 cmp         ax,0                        ; check if done if quotient is 0
                 jne         DECIMALLOOP
 ;
-                xor         bx,bx                       ; default page 0 and no color
 PRINTLOOP:      pop         ax                          ; get the digits in reverse order
-                call        RPIVGAPUTTTY                ; output to console, ASCII will be in AL
+                call        PRINTCHAR                   ; output to console, ASCII will be in AL
                 loop        PRINTLOOP
                 pop         dx
                 pop         cx
@@ -3591,7 +3623,7 @@ PRINTLOOP:      pop         ax                          ; get the digits in reve
 ;  (2) PRINTHEXB - print a byte from AL         ;
 ;  (3) HEXDIGIT - print low nibble from AL      ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AX number to convert and print              ;
 ; exit:                                         ;
 ;   all work registers saved                    ;
@@ -3608,7 +3640,7 @@ PRINTHEXB:      push        cx                          ; save CX
                 push        ax
                 mov         cl,4
                 shr         al,cl                       ; setup high nibble in AL
-                call        HEXDIGIT                    ; pring high nibble
+                call        HEXDIGIT                    ; print high nibble
                 pop         ax                          ; setup low nibble in AL
                 call        HEXDIGIT                    ; print low nibble
                 pop         cx
@@ -3622,15 +3654,12 @@ HEXDIGIT:       push        ax
                 jmp         PRINTDIGIT
 NUMDIGIT:       add         al,('0')                    ; shift to numbers' ASCII
 ;
-PRINTDIGIT:     push        bx
-                xor         bx,bx                       ; default page 0 and no color
-                call        RPIVGAPUTTTY                ; print character
-                pop         bx
+PRINTDIGIT:     call        PRINTCHAR                   ; print character
                 pop         ax
                 ret
 ;
 ;-----------------------------------------------;
-; this subroutine performes a read/write test   ;
+; this subroutine performs a read/write test    ;
 ; with four byte patterns: 55/AA/01/00.         ;
 ; test 1KB (1024B) at a time.                   ;
 ;                                               ;
@@ -3697,13 +3726,14 @@ EXTMEMTST:      mov         ax,es
 ;
 ;-----------------------------------------------;
 ; read blocks of 512 bytes from IDE drive       ;
+; TODO return actual blocks read counter        ;
 ;                                               ;
 ; entry:                                        ;
 ;   ES:BX pointer to destination buffer         ;
 ;   AL number of 512 block to read              ;
 ; exit:                                         ;
 ;   memory buffer containes read data and/or    ;
-;   CF = '1' drive timed out/read error
+;   CF = '1' drive timed out/read error         ;
 ;   CF = '0' read completed                     ;
 ;   all work registers saved                    ;
 ;-----------------------------------------------;
@@ -3771,11 +3801,12 @@ IDEREAD:        push        ax
 ;
 ;-----------------------------------------------;
 ; write blocks of 512 bytes to IDE drive        ;
+; TODO return actual blocks written counter     ;
 ;                                               ;
 ; entry:                                        ;
 ;   ES:BX pointer to source buffer              ;
 ; exit:                                         ;
-;   CF = '1' drive timed out/write error
+;   CF = '1' drive timed out/write error        ;
 ;   CF = '0' write completed                    ;
 ;   all work registers saved                    ;
 ;-----------------------------------------------;
@@ -4113,7 +4144,7 @@ IDEDRQEXIT:     pop         ds
 ;       h - head DH                             ;
 ;       S - sectors per track                   ;
 ;       H - heads per drive                     ;
-; IDE drive absolut LBA will be calculated by   ;
+; IDE drive absolute LBA will be calculated by  ;
 ; adding the 'ddDRVHOSTOFF' parameter from the  ;
 ; drive data structure.                         ;
 ;                                               ;
@@ -4217,7 +4248,9 @@ CHS2LBA:        push        bx
 ;
 .chs2lba_exit:
 %if (DebugConsole && CHS2LBA_Debug)
+                pushf
                 call        DEBUGREGS
+                popf
 %endif
                 mov         sp,bp                       ; restore SP
                 pop         bp
@@ -4228,7 +4261,7 @@ CHS2LBA:        push        bx
                 ret
 ;
 ;-----------------------------------------------;
-; this subroutine checks the existance of the   ;
+; this subroutine checks the existence of the   ;
 ; drive number passed in DL, and returns a      ;
 ; pointer to the drive's parameter table        ;
 ; as well as set the drives LBA offset into the ;
@@ -4364,14 +4397,14 @@ BEEP:           push        ax
                 out         TIMER2,al                   ; high order count
                 in          al,PPIPB                    ; get timer control port state
                 mov         ah,al                       ; save it
-                or          al,00000011b                ; ebale the timer/speaker
+                or          al,00000011b                ; enable the timer/speaker
                 out         PPIPB,al
                 popf                                    ; restore interrupts
 ;
 BEEPLOOP:       mov         cx,4320                     ; delay to achieve 1/64 sec @ 4.7MHz clock (CX=7353 @ 8MHz)
 WAITBEEP:       loop        WAITBEEP                    ; wait 1/64 of sec
                 dec         bl
-                jnz         BEEPLOOP                    ; repeate delay count
+                jnz         BEEPLOOP                    ; repeat delay count
 ;
                 pushf                                   ; save interrupt state
                 cli                                     ; and disable during changes
@@ -4429,6 +4462,10 @@ MEMTESTRET2:    dw          (MEM2KCHECK+ROMOFF)         ; second 1K memory test
 ;
 ;-----  implemented interrupt service routines:            ^^^
 ; @@- 5-107/255 line 2585
+; ' ' not supported/not wired
+; 'y' wired and/or implemented
+; 'n' wired but masked
+;
 VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by zero
                 dw          (IGNORE+ROMOFF)             ;       01h Single step
                 dw          (INT02+ROMOFF)              ;   y   02h NMI
@@ -4441,7 +4478,7 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (INT09+ROMOFF)              ;   y   09h (IRQ1) Keyboard attention           [keyboard controller]
                 dw          (IGNORE+ROMOFF)             ;       0Ah (IRQ2) Video (5-49/197 line 278)    [masked]
                 dw          (INT0B+ROMOFF)              ;   n   0Bh (IRQ3) COM2 serial i/o              [SIO Ch.A -> masked]
-                dw          (INT0C+ROMOFF)              ;   y   0Ch (IRQ4) COM1 serial i/o              [UART console input -> masked]
+                dw          (INT0C+ROMOFF)              ;   n   0Ch (IRQ4) COM1 serial i/o              [UART console input -> masked]
                 dw          (INT0D+ROMOFF)              ;   n   0Dh (IRQ5) Hard disk attn.              [IDE -> masked]
                 dw          (IGNORE+ROMOFF)             ;       0Eh (IRQ6) Floppy disk attention        [masked]
                 dw          (IGNORE+ROMOFF)             ;       0Fh (IRQ7) Parallel printer             [masked]
@@ -4458,9 +4495,8 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (INT1A+ROMOFF)              ;   y   1Ah Time/date services (5-95/243 line 1294)
                 dw          (INT1B+ROMOFF)              ;   y   1Bh Keyboard break user service
                 dw          (INT1C+ROMOFF)              ;   y   1Ch System tick user service
-                dw          0                           ;       1Dh Address of Video parameter table
-                dw          0                           ;       1Eh Address of Disk parameter table
-                dw          0                           ;       1Fh Graphic charactr table ptr
+;
+NUMVECTORS:     equ         ($-VECTORS)/2
 ;
 ;-----  drive parameters
 ;
@@ -4472,106 +4508,96 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
 ;  (1) calculate LBA number based on listed geometry
 ;  (2) add LBA offset that will position the emulated floppy/HDD
 ;      in the LBA range of the host drive.
-;  (3) LBA from #2 shall not exceed maximum host drive addresable LBAs
+;  (3) LBA from #2 shall not exceed maximum host drive addressable LBAs
 ;
 DRVPARAM:       db          (FLOPPYCNT+FIXEDCNT)        ; attached drives (max of 3, 2 x floppy, 1 x HDD)
-DRVTABLE:       dw          (DRV0+ROMOFF)               ; parameter table for drive 0 (floppy A:)
-                dw          (DRV1+ROMOFF)               ; parameter table for drive 1 (floppy B:)
-                dw          (DRV2+ROMOFF)               ; parameter table for drive 2 (HDD C:)
+DRVTABLE:       dw          (FLP0+ROMOFF)               ; parameter table for drive 0 (floppy A:)
+                dw          (FLP1+ROMOFF)               ; parameter table for drive 1 (floppy B:)
+                dw          (FD0+ROMOFF)                ; parameter table for drive 2 (HDD C:)
 ;
-DRV0:           db          00h                         ; [ddDRIVEID]    drive ID
+FLP0:           db          00h                         ; [ddDRIVEID]    drive ID
                 db          1                           ; [ddDASDTYPE]   diskette, no change detection present (see INT 13, 08h and 15h)
                 db          4                           ; [ddCMOSTYPE]   1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
                 dw          79                          ; [ddDRVGEOCYL]  # cylinders -> 3.5" floppy 1.44MB (0..79)
                 db          1                           ; [ddDRVGEOHEAD] # heads (0..1)
                 db          18                          ; [ddDRVGEOSEC]  # sectors/track (1..18)
-                dw          0                           ; [ddDRVMAXLBAHI]  Max LBAs high word
-                dw          2880                        ; [ddDRVMAXLBALO]  Max LBAs low word (0..2879)
+                dd          2879                        ; zero-based last LBA number
                 dw          0                           ; [ddDRVHOSTOFF] LBA offset into IDE host drive
-DRV0DBT:        db          0                           ; specify byte 1; step-rate time, head unload time
-                db          0                           ; specify byte 2; head load time, DMA mode
-                db          1                           ; timer ticks to wait before disk motor shutoff
+;
+;----   values from: http://www.ctyme.com/intr/rb-2445.htm
+;
+FLP0DBT:        db          0dfh                        ; specify byte 1; step-rate time, head unload time
+                db          02h                         ; specify byte 2; head load time, DMA mode
+                db          25h                         ; timer ticks to wait before disk motor shutoff
                 db          2                           ; bytes per sector code: 0 = 128, 1 = 256, 2 = 512, 3 = 1024
                 db          18                          ; sectors per track (last sector number)
-                db          0                           ; inter-block gap length/gap between sectors
+                db          1bh                         ; inter-block gap length/gap between sectors
                 db          0ffh                        ; data length, if sector length not specified
-                db          0                           ; gap length between sectors for format
+                db          6ch                         ; gap length between sectors for format
                 db          FORMATFILL                  ; fill byte for formatted sectors
-                db          1                           ; head settle time in milliseconds
-                db          1                           ; motor startup time in eighths of a second
+                db          0fh                         ; head settle time in milliseconds
+                db          5                           ; motor startup time in eighths of a second
 ;
-DRV1:           db          01h                         ; drive ID
+FLP1:           db          01h                         ; drive ID
                 db          1                           ; type = diskette, no change detection present (see INT 13, 08h and 15h)
                 db          4                           ; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
                 dw          79                          ; # cylinders -> 3.5" floppy 1.44MB (0..79)
                 db          1                           ; # heads (0..1)
                 db          18                          ; # sectors/track (1..18)
-                dw          0                           ; Max LBAs high word
-                dw          2880                        ; Max LBAs low word (0..2879)
+                dd          2879                        ; zero-based last LBA number
                 dw          12000                       ; LBA offset into IDE host drive
-DRV1DBT:        db          0                           ; specify byte 1; step-rate time, head unload time
-                db          0                           ; specify byte 2; head load time, DMA mode
-                db          1                           ; timer ticks to wait before disk motor shutoff
+FLP1DBT:        db          0dfh                        ; specify byte 1; step-rate time, head unload time
+                db          02h                         ; specify byte 2; head load time, DMA mode
+                db          25h                         ; timer ticks to wait before disk motor shutoff
                 db          2                           ; bytes per sector code: 0 = 128, 1 = 256, 2 = 512, 3 = 1024
                 db          18                          ; sectors per track (last sector number)
-                db          0                           ; inter-block gap length/gap between sectors
+                db          1bh                         ; inter-block gap length/gap between sectors
                 db          0ffh                        ; data length, if sector length not specified
-                db          0                           ; gap length between sectors for format
+                db          6ch                         ; gap length between sectors for format
                 db          FORMATFILL                  ; fill byte for formatted sectors
-                db          1                           ; head settle time in milliseconds
-                db          1                           ; motor startup time in eighths of a second
+                db          0fh                         ; head settle time in milliseconds
+                db          5                           ; motor startup time in eighths of a second
 ;
-DRV2:           db          80h                         ; drive ID -- fixed disk 0
+FD0:            db          80h                         ; drive ID -- fixed disk 0
                 db          3                           ; type = HDD, fixed disk (see INT 13, 15h)
                 db          0                           ; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
-                dw          518                         ; # cylinders -> HDD 2GB (0..518)
-                db          127                         ; # heads (0..127)
-                db          63                          ; # sectors/track (1..63)
-                dw          003fh                       ; Max LBAs high word
-                dw          0dc80h                      ; Max LBAs low word (0.. 4,185,215)
-                dw          15000                       ; LBA offset into IDE host drive
-DRV2DBT:        dw          519                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
-                db          128                         ; ( 2) # of heads
-                db          0                           ; ( 3) reserved
-                db          0                           ; ( 4) reserved
-                dw          0                           ; ( 5) starting write precompensation cylinder number
-                db          0                           ; ( 7) reserved
-                db          065h                        ; ( 8) control byte
-                dw          0                           ; ( 9) reserved
-                db          0                           ; (11) reserved
-                dw          0                           ; (12) cylinder number of landing zone
-                db          63                          ; (14) # sectors per track
-                db          0                           ; (15) reserver
+                dw          (MAXCYL-1)                  ; # cylinders 0..(MAXCYL-1)
+                db          (MAXHEAD-1)                 ; # heads 0..(MAXHEAD-1)
+                db          MAXSEC                      ; # sectors/track 1..MAXSEC
+                dd          FDLASTLBA                   ; zero-based last LBA number
+                dw          FDHOSTOFFSET                ; LBA offset into IDE host drive
 ;
-;-----  simple DPT drive parameters format
+;-----  16-byte fixed disk parameter table
+; https://www.win.tue.nl/~aeb/linux/hdtypes/hdtypes-1.html
+; valus mimic VMware environement
 ;
-;DRV2DBT:        dw          612                         ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
-;                db          4                           ; ( 2) # of heads
+FD0PARAM:       dw          MAXCYL                      ; ( 0) maximum number of cylinders
+                db          MAXHEAD                     ; ( 2) maximum number of heads
+                dw          3fa0h                       ; ( 3) starting reduced-write current cylinder
+                dw          0ffffh                      ; ( 5) starting write precompensation cylinder
+                db          0                           ; ( 7) maximum ECC data burst length
+                db          00001000b                   ; ( 8) options https://www.win.tue.nl/~aeb/linux/hdtypes/hdtypes-2.html
+                db          41h                         ; ( 9) standard timeout value
+                db          10h                         ; (10) timeout value for format drive
+                db          10h                         ; (11) timeout value for check drive
+                dw          1041h                       ; (12) landing zone
+                db          MAXSEC                      ; (14) sectors per track
+                db          0a0h                        ; (15) reserved
+;
+;-----  FDPT drive parameters format
+;
+;DRV2DBT:        dw          MAXCYL                      ; ( 0) # of cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
+;                db          MAXHEAD                     ; ( 2) # of heads
 ;                db          0                           ; ( 3) reserved
 ;                db          0                           ; ( 4) reserved
 ;                dw          0                           ; ( 5) starting write precompensation cylinder number
 ;                db          0                           ; ( 7) reserved
-;                db          065h                        ; ( 8) control byte
+;                db          00001000b                   ; ( 8) control byte
 ;                dw          0                           ; ( 9) reserved
 ;                db          0                           ; (11) reserved
 ;                dw          0                           ; (12) cylinder number of landing zone
-;                db          17                          ; (14) # sectors per track
-;                db          0                           ; (15) reserver
-;
-;-----  EDPT format for drive parameters
-;
-;DRV2DBT:        dw          612                         ; ( 0) # logical cylinders @@- http://web.inter.nl.net/hcc/J.Steunebrink/bioslim.htm
-;                db          4                           ; ( 2) # logical heads
-;                db          0a0h                        ; ( 3) EDPT signiture
-;                db          17                          ; ( 4) # physical sectors per track
-;                dw          0ffffh                      ; ( 5) starting write precompensation (obsolete)
-;                db          0                           ; ( 7) reserved
-;                db          65h                         ; ( 8) control byte 08h?
-;                dw          612                         ; ( 9) # physical cylinders
-;                db          4                           ; (11) # physical heads
-;                dw          0                           ; (12) landing zone (obsolete)
-;                db          17                          ; (14) # logical sectors per track
-;                db          07h                         ; (15) checksum (two's complement of 8-bit sum)
+;                db          MAXSEC                      ; (14) # sectors per track
+;                db          0                           ; (15) reserved
 ;
 ;-----  text strings
 ;
@@ -4590,7 +4616,7 @@ CRLF:           db          CR, LF, 0                   ; this is still part of 
 ;
 DEBUGCONONMSG:  db          "debug console active.", CR, LF, 0
 DEBUGCONOFFMSG: db          "debug console not active.", CR, LF, 0
-UARTFAILMSG:    db          "UART1 faild loopback test.", CR, LF, 0
+UARTFAILMSG:    db          "UART1 failed loopback test.", CR, LF, 0
 OKMSG:          db          "ok", CR, LF, 0
 FAILMSG:        db          "fail", CR, LF, 0
 SYSCONFIG:      db          "system configuration: 0x", 0
@@ -4618,7 +4644,8 @@ TYPE2MSG:       db          "  type       02 diskette, change detection", CR, LF
 TYPE3MSG:       db          "  type       03 fixed disk", CR, LF, 0
 LBAOFFMSG:      db          "  LBA offset ", 0
 BADVIDMODE:     db          "bad video mode select, IPL aborted, check DIP SW 5 & 6", CR, LF, 0
-BOOTINGMSG:     db          CR, LF, "booting OS ...", CR, LF, 0
+MEMPREPERR:     db          "memory error clearing DOS area. halting.", CR, LF, 0
+BOOTINGMSG:     db          CR, LF, "booting OS: ", 0
 IPLFAILMSG:     db          "OS boot (IPL) failed", CR, LF, 0
 ;
 ;-----  hard coded commands for RPi VGA
@@ -4845,12 +4872,12 @@ DEBUGREGS:      push        ax
 ;-----------------------------------------------;
 ; this routing converts a number stored in AX   ;
 ; into ASCII and prints its hex form to the     ;
-; debug console.                                      ;
+; debug console.                                ;
 ; There are three entry point in this utility:  ;
-;  (1) PRINTHEXW - print a word from AX         ;
-;  (2) PRINTHEXB - print a byte from AL         ;
+;  (1) DEBUGHEXW - print a word from AX         ;
+;  (2) DEBUGHEXB - print a byte from AL         ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   AX number to convert and print              ;
 ; exit:                                         ;
 ;   all work registers saved                    ;
@@ -4867,7 +4894,7 @@ DEBUGHEXB:      push        cx                          ; save CX
                 push        ax
                 mov         cl,4
                 shr         al,cl                       ; setup high nibble in AL
-                call        .PrintDigit                 ; pring high nibble
+                call        .PrintDigit                 ; print high nibble
                 pop         ax                          ; setup low nibble in AL
                 call        .PrintDigit                 ; print low nibble
                 pop         cx
@@ -4889,7 +4916,7 @@ DEBUGHEXB:      push        cx                          ; save CX
 ; this routing transmits a string to UART.      ;
 ; The string must be '0' terminated.            ;
 ;                                               ;
-; enrty:                                        ;
+; entry:                                        ;
 ;   SI offset to string                         ;
 ;   DS segment address of string                ;
 ; exit:                                         ;
@@ -4897,16 +4924,13 @@ DEBUGHEXB:      push        cx                          ; save CX
 ;-----------------------------------------------;
 ;
 DEBUGSTZ:       push        ax
-                push        bx
                 push        si                          ; save work registers
-                xor         bx,bx                       ; default page 0 and no color
 .CharLoop:      lodsb                                   ; get character from string
                 cmp         al,0                        ; is it '0' ('0' signals end of string)?
                 je          .Exit                       ; yes, then done
                 call        SIOATX                      ; no, transmit the character byte
                 jmp         .CharLoop                   ; loop for next character
 .Exit:          pop         si                          ; restore registers and return
-                pop         bx
                 pop         ax
                 ret
 ;
@@ -4915,6 +4939,7 @@ DEBUGSTZ:       push        ax
 INT10DBG:       db          CR, LF, "=== int-10 unhandled function 0x", 0
 INT13DBG:       db          CR, LF, "=== int-13 unhandled function 0x", 0
 INT16DBG:       db          CR, LF, "=== int-16 unhandled function 0x", 0
+INT13FNC:       db          "INT 13,", 0
 KBDDBG1:        db          "scan code 0x", 0
 KBDDBG2:        db          " 0x", 0
 CHSDBG:         db          CR, LF, "=== CHS2LBA",0

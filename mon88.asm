@@ -38,7 +38,7 @@ MONITOR:        mov         sp,STACKTOP                 ; reset stack pointer
                 mov         es,ax
                 mov         si,MONOFF                   ; data offset pointer [DS:SI] to command buffer
                 mov         di,0
-                cld                                     ; auto incrementing string pointers
+                cld                                     ; auto increment string pointers
 ;
                 mov         ax,(MONSTUB+ROMOFF)
                 mov         [ds:si+mdMONEXTENSION],ax   ; initialize far pointer to monitor extensions stub
@@ -73,7 +73,7 @@ INPUTLOOP:      mov         ah,00h
                 cmp         al,CR                       ; is it a carriage return?
                 je          PROCCMD                     ; yes, don't store it in the buffer, just process it
 ;
-                mov         bx,[ds:si+mdCHARS]          ; get charater index/count
+                mov         bx,[ds:si+mdCHARS]          ; get charter index/count
                 cmp         bx,BUFFSIZE                 ; do we have room in the line buffer for this character?
                 jb          NOBUFFOVR                   ; yes, accept character
                 cmp         al,BS                       ; no, but is this a backspace key?
@@ -98,19 +98,17 @@ STORECHAR:      mov         [ds:si+bx],al               ; store character in inp
                 inc         bx                          ; increment buffer input index
 ;
 CONOUTPUT:      mov         [ds:si+mdCHARS],bx          ; store input index
-;                mov         ah,0eh                      ; echo character to console
-;                int         10h
-                call        RPIVGAPUTTTY                ; echo character to console
+                call        PRINTCHAR                   ; echo character to console
                 jmp         INPUTLOOP                   ; get more characters
 ;
 PROCCMD:        mcrPRINT    CRLF                        ; advance one line with CR, LF sequence
 ;
-;-----  tokenize command line buffer by replacing all space charactar with '0' delimiters
+;-----  tokenize command line buffer by replacing all space character with '0' delimiters
 ;
                 xor         bx,bx                       ; initialize character index
                 mov         cx,BUFFSIZE                 ; initialize character counter
 ;
-MORECHARS:      mov         al,[ds:si+bx]               ; get chracter
+MORECHARS:      mov         al,[ds:si+bx]               ; get character
                 cmp         al,0                        ; is this a NULL character?
                 je          GOCOUNT                     ; yes, we're done. go to count tokens
                 cmp         al,(' ')                    ; is it a SPACE character?
@@ -127,10 +125,10 @@ GOCOUNT:        xor         bx,bx                       ; reset character counte
                 mov         cx,(BUFFSIZE+1)             ; initialize character counter to go over into buffer delimiter area
                 mov         ah,1                        ; initialize flag to 'on delimiter'
 ;
-COUNTLOOP:      mov         al,[ds:si+bx]               ; get chracter
+COUNTLOOP:      mov         al,[ds:si+bx]               ; get character
                 cmp         al,0                        ; is this a token delimiter?
                 je          ISDELIM                     ;  yes, continue scanning
-                cmp         ah,0                        ;  not delimiter, was the previous chractaer a character or delimiter?
+                cmp         ah,0                        ;  not delimiter, was the previous character a character or delimiter?
                 je          NEXTCHAR                    ;
 ;
                 push        ax
@@ -199,7 +197,7 @@ CMDFOUND:       mov         ax,[es:di+8]                ; get call address offse
 NEXTTOKEN:      add         di,10                       ; next token on jump table
                 loop        TOKENCMP                    ; loop for next command comparison
 ;
-;-----  not a reognized command or syntax error
+;-----  not a recognized command or syntax error
 ;
 MONCMDERROR:    mcrPRINT    MONCMDERR                   ; print command syntax error
                 jmp         PROMPTLOOP
@@ -239,7 +237,7 @@ MONFUNCCOUNT:   equ         ($-MONJUMPTBL)/10               ; length of table fo
 ;
 ;-----------------------------------------------;
 ; this routine is a stub for unimplemented      ;
-; monitor mode commandds                        ;
+; monitor mode commands                         ;
 ;                                               ;
 ; entry:                                        ;
 ;   NA                                          ;
@@ -383,8 +381,8 @@ DRIVEWR:        push        ax
 ;
                 mov         cx,XHDDWRATONCE             ; default accumulated sector count before writing to HDD
                 mov         si,MONOFF
-                mov         ax,3                        ; third paramater
-                call        GETTOKEN                    ; check if optional paramater was provided
+                mov         ax,3                        ; third parameter
+                call        GETTOKEN                    ; check if optional parameter was provided
                 jc          .NoOptionalParameter        ;  no parameter provided, go to use default
                 add         si,ax                       ;  parameter provided, get it
                 call        ASCII2NUM                   ; convert it to a number
@@ -480,17 +478,17 @@ CODEEXEC:       push        ax
 ;
 ;-----  call code
 ;
-                lds         si,[ss:bp-4]                ; check code signiture, [DS:SI] points to code block
-                cmp         word [ds:si],SIGNITURE      ; check signiture at offset 0
-                jne         .BadSigniture               ; exit if signiture is not valid
-                add         word [ss:bp-4],2            ; adjust jump address past signiture
+                lds         si,[ss:bp-4]                ; check code signature, [DS:SI] points to code block
+                cmp         word [ds:si],SIGNITURE      ; check signature at offset 0
+                jne         .BadSigniture               ; exit if signature is not valid
+                add         word [ss:bp-4],2            ; adjust jump address past signature
                 push        bp                          ; must preserve BP!
                 call        far [ss:bp-4]               ; far call to user code
                 pop         bp
                 jmp         .CodeExecExit
 ;
 .BadSigniture:  mcrPRINT    BADSIGNITURE                ; print error
-                clc                                     ; not a funcion problem
+                clc                                     ; not a function problem
 ;
 .CodeExecExit:
                 mov         sp,bp                       ; discard parameters and restore stack frame
@@ -503,7 +501,7 @@ CODEEXEC:       push        ax
 ;
 ;-----------------------------------------------;
 ; read IO port '<port>' and display byte result ;
-; on colsole in HEX, Decimal formats            ;
+; on console in HEX, Decimal formats            ;
 ;                                               ;
 ; entry:                                        ;
 ;   NA                                          ;
@@ -989,13 +987,13 @@ INDEXOK:        mov         bx,2
                 mov         ax,[ds:si+mdTOKENINDEX+bx]  ; get token index value
                 clc                                     ; signal index is valid
 ;
-GETTOKENEXIT:   pop         ds                          ; retore work registers and exit
+GETTOKENEXIT:   pop         ds                          ; restore work registers and exit
                 pop         si
                 pop         bx
                 ret
 ;
 ;-----------------------------------------------;
-; conver a string pointed to by DS:SI to        ;
+; convert a string pointed to by DS:SI to       ;
 ; a number returned in AX                       ;
 ; number returned is 16 bit max                 ;
 ; hex noted with 'h' at right end               ;
@@ -1006,7 +1004,7 @@ GETTOKENEXIT:   pop         ds                          ; retore work registers 
 ;   DS:SI pointer to NULL terminated string     ;
 ; exit:                                         ;
 ;   AX 16 bit number                            ;
-;   CY.f=1 convertion error                     ;
+;   CY.f=1 conversion error                     ;
 ;   CY.f=0 valid number in AX                   ;
 ;-----------------------------------------------;
 ;
@@ -1016,7 +1014,7 @@ ASCII2NUM:      push        bx
                 push        si
                 push        ds                          ; save work registers
 ;
-;-----  start scanning the number string fromn the right
+;-----  start scanning the number string from the right
 ;
                 cld                                     ; make sure SI increments
 MOVERIGHT:      lodsb                                   ; load a character
@@ -1043,7 +1041,7 @@ NEXTDECCHAR:    lodsb                                   ; get character
                 ja          ASCII2NUMERR                ; exit with error if over 9
                 xor         ah,ah
                 mul         cx                          ; multiply the number by the power
-                jo          ASCII2NUMERR                ; if DX has sugnificant digits then we have an error
+                jo          ASCII2NUMERR                ; if DX has significant digits then we have an error
                 add         bx,ax                       ; accumulate sums in BX
                 mov         ax,10
                 mul         cx                          ; multiply power
@@ -1062,7 +1060,7 @@ NEXTHEXCHAR:    lodsb                                   ; get character
                 jc          ASCII2NUMERR                ; exit if error in digit
                 xor         ah,ah
                 mul         cx                          ; multiply the number by the power
-                jo          ASCII2NUMERR                ; if DX has sugnificant digits then we have an error
+                jo          ASCII2NUMERR                ; if DX has significant digits then we have an error
                 add         bx,ax                       ; accumulate sums in BX
                 mov         ax,16
                 mul         cx                          ; multiply power
@@ -1124,7 +1122,7 @@ ASCII2NUMDONE:  cld                                     ; set back to auto incre
 CHAR2NUM:       cmp         al,('0')                    ; is the character less than '0'?
                 jb          CONVERR                     ; yes, then exit with error
                 cmp         al,('9')                    ; is it less or equal to '9'?
-                jbe         NUMERIC                     ; yes, conver a number character to a number
+                jbe         NUMERIC                     ; yes, convert a number character to a number
                 or          al,00100000b                ; only hex digits should be here, so convert to lower case
                 cmp         al,('a')                    ; is it less that 'a'?
                 jb          CONVERR                     ; yes, then exit with error
@@ -1133,14 +1131,14 @@ CHAR2NUM:       cmp         al,('0')                    ; is the character less 
 ;
 ;-----  convert a hex digit between 'a' and 'f'
 ;
-                sub         al,('a')                    ; conver to number
+                sub         al,('a')                    ; convert to number
                 add         al,10
                 clc                                     ; signal good conversion
                 jmp         CHAR2NUMEXIT
 ;
 ;-----  conver a numeric digit between '0' and '9'
 ;
-NUMERIC:        sub         al,('0')                    ; conve to number
+NUMERIC:        sub         al,('0')                    ; convert to number
                 clc                                     ; signal good conversion
                 jmp         CHAR2NUMEXIT
 ;
@@ -1171,7 +1169,7 @@ MEMDUMP:        push        ax
                 mcrPRINT    CRLF
 ;
                 mov         cx,ax                       ; count of rows of 16 bytes for 512B block
-                and         di,0fff0h                   ; reset DI to start at a 16 byte boundry
+                and         di,0fff0h                   ; reset DI to start at a 16 byte boundary
 NEXTROW:        mov         ax,es                       ; print [ES:DI]
                 call        PRINTHEXW
                 mov         al,(':')
@@ -1368,10 +1366,10 @@ XMODEMRX:       push        bp
                 mov         dx,HOSTWAITTOV              ; set max time to wait for host
 ;
 CONNECTLOOP:    mcrXMODEMRESP   XSTART                  ; send "C" to start connection with host
-WAITHOSTRPLY:   call        WAITHOST                    ; wait for host to reply, retun reply in AL
+WAITHOSTRPLY:   call        WAITHOST                    ; wait for host to reply, return reply in AL
                 jnc         GETFIRSTPACKET              ; process packet is host did not time out
                 dec         dx
-                jnz         CONNECTLOOP                 ; loop to send another "C" becasue host did not reply yet
+                jnz         CONNECTLOOP                 ; loop to send another "C" because host did not reply yet
                 mcrPRINT    XMODEMHOSTTOV               ; print error message
                 clc
                 jmp         XMODEMRXEXIT
