@@ -39,7 +39,8 @@ EQUIPMENT:      equ         0000000001001100b           ; hard coded 'OR' mask f
 ;                           ||+------------------------------ unused
 ;                           ++------------------------------- # of printer ports
 ;
-ROMMONITOR:     equ         0000000000000001b
+ROMMONITOR:     equ         0000000000000001b           ; switch bit repurposed for an auto-IPL/monitor-mode flag
+COMPORT:        equ         0000001000000000b           ; one serial port, if it is operational
 ;
 ;======================================
 ; XMODEM equates
@@ -388,13 +389,14 @@ NMIDIS:         equ         00h
 ; 16550/82C50A UART ($300 - $307)
 ;--------------------------------------
 ;
+COM1BASE:       equ         300h
 RBR:            equ         300h                ; Rx Buffer Reg. (RBR)
 THR:            equ         300h                ; Tx Holding Register. (THR)
 RXTXREG:        equ         300h
 ;
 IER:            equ         301h                ; Interrupt Enable Reg.
 ;
-INTRINIT:       equ         00000001b           ; interrupt on byte receive only
+INTRINIT:       equ         00000000b           ; interrupts disabled
 ;                           76543210
 ;                           ||||||||
 ;                           |||||||+--- b0.. Rx Data Available interrupt
@@ -441,8 +443,8 @@ LCRINIT:        equ         00000011b           ; 8-bit Rx/Tx, 1 stop bit, no pa
 ;                           |||||||+--- b0.. character length
 ;                           ||||||+---- b1.. character length
 ;                           |||||+----- b2.. 1 stop bit
-;                           ||||+------ b3.. parity disabled
-;                           |||+------- b4.. odd parity
+;                           ||||+------ b3.. parity enable
+;                           |||+------- b4.. even parity
 ;                           ||+-------- b5.. "stick" parity disabled
 ;                           |+--------- b6.. break control disabled
 ;                           +---------- b7.. Divisor Latch Access Bit (DLAB)

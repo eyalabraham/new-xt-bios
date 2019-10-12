@@ -143,8 +143,8 @@ struc           BIOSDATA
 ;
 ; Equipment
 ;
-                resw        4                   ; 40:00 - RS232 com. ports - up to four
-                resw        4                   ; 40:08 - Printer ports    - up to four
+bdCOMPORTADD:   resw        4                   ; 40:00 - RS232 com. ports - up to four
+bdPRNPORTADD:   resw        4                   ; 40:08 - Printer ports    - up to four
 bdEQUIPMENT:    resw        1                   ; 40:10 - Equipment present word
 ;
 ;                                                          |F|E|D|C|B|A|9|8|7|6|5|4|3|2|1|0|
@@ -269,7 +269,7 @@ bdFIXEDDRVCNT:  resb        1                   ; 40:75 - fixed drive count
 ; Time-out areas COM/LPT
 ;
                 resb        4                   ; 40:78 - Ticks for LPT 1-4 timeouts
-                resb        4                   ; 40:7C - Ticks for COM 1-4 timeouts
+bdCOMTIMEOUT:   resb        4                   ; 40:7C - Ticks for COM 1-4 timeouts
 ;
 ; Keyboard buf start/end
 ;

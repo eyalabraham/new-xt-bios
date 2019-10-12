@@ -17,8 +17,8 @@
 ; default startup CRT properties
 ;======================================
 ;
-DEFBAUDSIOA:    equ         BAUD19200
-DEFBAUDSIOB:    equ         BAUD38400
+DEFBAUDSIOA:    equ         BAUD19200           ; debug console baud rate
+DEFBAUDSIOB:    equ         BAUD57600           ; RPi display interface baud rate
 DEFVIDEOMODE:   equ         9                   ; BIOS POST goes into special mode 9 for mon88                                                for OS boot, video mode is set based on DIP SW.5 & 6 setting
 ;
 ;======================================
@@ -41,5 +41,6 @@ FDHOSTOFFSET:   equ         15000               ; LBA offset into host drive
 %define         INT09_Debug     0               ; set to '1' to enable debug, '0' to disable
 %define         INT10_Debug     0
 %define         INT13_Debug     0
+%define         INT14_Debug     0
 %define         INT16_Debug     0
 %define         CHS2LBA_Debug   0

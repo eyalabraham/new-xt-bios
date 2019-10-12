@@ -536,13 +536,24 @@ WAITBYTE:       mov         dx,LSR
                 dec         cl
                 jnz         TESTLOOP                    ; loop to next test byte
 ;
+;-----  UART is good, we have COM1
+;
                 mov         dx,MCR
                 in          al,dx
                 and         al,11101111b
                 out         dx,al                       ; set UART back to normal Rx/Tx mode
+;
+                mov         bx,COMPORT                  ; BX use to later set COM port quipment count
+                mov         ax,BIOSDATASEG
+                mov         ds,ax
+                mov         word [ds:bdCOMPORTADD],COM1BASE ; store COM1 base address
+;
                 jmp         SYSTEMCONF
 ;
+;-----  UART failed, no COM1
+;
 UARTFAIL:       mcrPRINT    UARTFAILMSG
+                xor         bx,bx                       ; COM port failed, so none on the system
 ;
 ;   *********************************
 ;   ***   SYSTEM CONFIGURATION    ***
@@ -568,6 +579,7 @@ SYSTEMCONF:     mov         ax,BIOSDATASEG
                 xor         ah,ah
                 and         ax,EQUIPMENTMASK
                 or          ax,EQUIPMENT                ; hard code diskette count, RAM size, etc
+                or          ax,bx                       ; set COM port count
                 mov         [ds:bdEQUIPMENT],ax         ; save equipment flags
 ;
 ;-----  print configuration bits
@@ -2691,6 +2703,263 @@ INT13IGNORE:
                 stc                                     ; indicate error condition for ignored function
                 ret                                     ; exit back to caller
 ;
+;----- INT 14 ----------------------------------;
+; Asynchronous Communications Services          ;
+;                                               ;
+; AH = 00                                       ;
+;    AL = parms for initialization (below)      ;
+;    DX = zero based serial port number (0-1)   ;
+;                                               ;
+;    |7|6|5|4|3|2|1|0|  AL                      ;
+;     | | | | | | +-+-- word length bits        ;
+;     | | | | | +------ stop bits flag          ;
+;     | | | +-+-------- parity bits             ;
+;     +-+-+------------ baud rate bits          ;
+;                                               ;
+;   Parity (bits 4 & 3)                         ;
+;       00 = none                               ;
+;       01 = odd                                ;
+;       10 = none                               ;
+;       11 = even                               ;
+;                                               ;
+;   Word length (bits 1 & 0)  Stop bits (bit 2) ;
+;       10 = 7 bits           0 = 1 stop bit    ;
+;       11 = 8 bits           1 = 2 stop bits   ;
+;                                               ;
+;   Baud rate (bits 7, 6 & 5)                   ;
+;       000 = 110 baud  100 = 1200 baud         ;
+;       001 = 150 baud  101 = 2400 baud         ;
+;       010 = 300 baud  110 = 4800 baud         ;
+;       011 = 600 baud  111 = 9600 baud         ;
+;                                               ;
+;    on return:                                 ;
+;    AH = port status                           ;
+;    AL = modem status                          ;
+;                                               ;
+; AH = 01                                       ;
+;    AL = character to send                     ;
+;    DX = zero based serial port number (0-1)   ;
+;                                               ;
+;    on return:                                 ;
+;    AH = port status  (see INT 14,STATUS)      ;
+;         bit 7=0 indicates success             ;
+;         bit 7=1 indicates error               ;
+;         bits 0-6 indicate cause               ;
+;                                               ;
+;    - INT 14,3 should be used to determine     ;
+;      the actual cause of the error since the  ;
+;      time-out bit of the status register is   ;
+;      always set during an error on this call  ;
+;    - uses hardware flow control               ;
+;                                               ;
+; AH = 02                                       ;
+;    DX = zero based serial port number (0-1)   ;
+;                                               ;
+;    on return:                                 ;
+;    AH = port status  (see INT 14,STATUS)      ;
+;         bit 7 = 0 if successful               ;
+;         bit 7 = 1 if call failed              ;
+;    AL = character received if call success    ;
+;                                               ;
+;    - INT 14,3 should be used to determine the ;
+;      actual cause of the error since the      ;
+;      time-out bit of the status register is   ;
+;      always set during an error on this call  ;
+;    - uses hardware flow control               ;
+;                                               ;
+; AH = 03                                       ;
+;    DX = zero based serial port number (0-1)   ;
+;                                               ;
+;    on return:                                 ;
+;    AH = port status                           ;
+;    AL = modem status                          ;
+;                                               ;
+;    - for status bits see INT 14,STATUS        ;
+;    - the status check performs a poll of the  ;
+;      port and does not perform character I/O  ;
+;                                               ;
+; |7|6|5|4|3|2|1|0|  AL  modem status           ;
+;  | | | | | | | `---- CTS status changed       ;
+;  | | | | | | `----- DSR status changed        ;
+;  | | | | | `------ trailing edge RI           ;
+;  | | | | `------- receive line signal changed ;
+;  | | | `-------- clear to send                ;
+;  | | `--------- data set ready                ;
+;  | `---------- ring indicator                 ;
+;  `----------- receive line signal detected    ;
+;                                               ;
+; |7|6|5|4|3|2|1|0|  AH  port status            ;
+;  | | | | | | | `---- data ready               ;
+;  | | | | | | `----- overrun error             ;
+;  | | | | | `------ parity error               ;
+;  | | | | `------- framing error               ;
+;  | | | `-------- break detect                 ;
+;  | | `--------- transmit holding reg. empty   ;
+;  | `---------- transmit shift reg. empty      ;
+;  `----------- time out (N/A for Func. 1 & 2)  ;
+;                                               ;
+;-----------------------------------------------;
+;
+INT14:          sti                                     ; trun interrupts back on
+                push        bx
+                push        cx
+                push        dx
+                push        si
+                push        di
+                push        ds
+;
+%if (DebugConsole && INT14_Debug)
+;
+                push        ax
+                mcrDBGPRINT INT14FNC
+                xchg        al,ah                       ; print INT 14h function code
+                call        DEBUGHEXB
+                xchg        al,ah
+                call        DEBUGREGS                   ; print register contents
+                pop         ax
+;
+%endif
+;
+                mov         bx,BIOSDATASEG
+                mov         ds,bx
+;
+                mov         si,dx                       ; port to SI (index to IO port base address)
+                mov         di,dx                       ; port to DI (index to port's timeout)
+                shl         si,1                        ; word offset
+                mov         dx,[ds:si+bdCOMPORTADD]     ; get base address of COM port
+                or          dx,dx                       ; test if the address is zero (COM port does not exist)
+                jz          .ExitINT14                  ; exit if no port
+                or          ah,ah                       ; test AH=0
+                jz          .SerialInit                 ; initialize COM port
+                dec         ah                          ; test AH=1
+                jz          .SerialTx                   ; transmit byte
+                dec         ah                          ; test AH=2
+                jz          .SerialRx                   ; receive byte
+                dec         ah                          ; test AH=3
+                jz          .SerialStatus               ; get status
+;
+.ExitINT14:     pop         ds
+                pop         di
+                pop         si
+                pop         dx
+                pop         cx
+                pop         bx
+                iret
+;
+;-----  serial port setup
+;
+.SerialInit:    mov         ah,al                       ; save initialization parameters
+                add         dx,3                        ; DX is line control register
+                mov         al,80h
+                out         dx,al                       ; set Divisor Latch Access Bit (DLAB)
+                mov         dl,ah
+                mov         cl,4
+                rol         dl,cl                       ; shift 4, to make into index of words
+                and         dx,000eh                    ; isolate baud select bits
+                mov         di,(BAUDLIST+ROMOFF)
+                add         di,dx                       ; DI is index into baud rate divisor table
+                mov         dx,[ds:si+bdCOMPORTADD]     ; get base address of COM port
+                inc         dx
+                mov         al,[cs:di+1]                ; get high order divisor
+                out         dx,al
+                dec         dx
+                mov         al,[cs:di]                  ; get low order divisor
+                out         dx,al
+                add         dx,3                        ; DX is Line Control Reg.
+                mov         al,ah                       ; restor parameters
+                and         al,1fh                      ; remove baud rate selection bits
+                out         dx,al                       ; set word length, stop-bit, and parity
+                sub         dx,2                        ; DX is Interrupt Enable Reg.
+                mov         al,0
+                out         dx,al                       ; all interrupts off
+                jmp         .SerialStatus               ; get status
+;
+;-----  transmit byte
+;
+.SerialTx:      push        ax                          ; save byte to send
+                add         dx,4                        ; DX is MODEM Control Reg.
+                mov         al,00000010b                ; set RTS
+                out         dx,al
+                add         dx,2                        ; DX is MODEM Status Reg.
+                mov         bh,00010000b                ; to test CTS
+                call        STATUSWAIT                  ; wait for status in BH
+                jz          .OkToTx                     ; ok to transmit, DSR and CTS asserted by receiver
+;
+.TxTimeOut:     pop         cx                          ; data in CX (was pushed from AX)
+                mov         al,cl                       ; data byte back in AL
+.RxTimeOut:     or          ah,80h                      ; indicate time-out, last status is in AH
+                jmp         .ExitINT14
+;
+.OkToTx:        dec         dx                          ; DX is Line Status Reg.
+                mov         bh,00100000b                ; to wait for Tx Holding Register Ready bit
+                call        STATUSWAIT                  ; wait for transmit buffer to empty
+                jnz         .TxTimeOut                  ; exit if timed-out
+                sub         dx,5                        ; DX is Tx Holding Register. (THR)
+                pop         cx                          ; data in CX (was pushed from AX)
+                mov         al,cl                       ; AL is bytes, last status is in AH
+                out         dx,al
+                jmp         .ExitINT14
+;
+;-----  receive byte
+;
+.SerialRx:      add         dx,5                        ; DX is Line Status Reg.
+                mov         bh,00000001b                ; set to test Rx Register Ready
+                call        STATUSWAIT                  ; wait for byte to be received
+                jnz         .RxTimeOut                  ; time out waiting for data byte
+;
+                and         ah,00011110b                ; isolate error conditions
+                mov         dx,[ds:si+bdCOMPORTADD]     ; get base address of COM port
+                in          al,dx                       ; read byte from Rx Buffer Reg. (RBR)
+;
+                mov         bl,al                       ; save input byte
+                add         dx,4                        ; DX is MODEM Control Reg.
+                xor         al,al
+                out         dx,al                       ; DTR and RTS to '0'
+                mov         al,bl                       ; restore input byte
+;
+                jmp         .ExitINT14
+;
+;-----  serial status
+;
+.SerialStatus:  mov         dx,[ds:si+bdCOMPORTADD]     ; get base address of COM port
+                add         dx,5                        ; DX is Line Status Reg.
+                in          al,dx                       ; get line status
+                mov         ah,al
+                inc         dx                          ; DX is MODEM Status Reg.
+                in          al,dx                       ; get MODEM line status
+                jmp         .ExitINT14
+
+;
+;-----------------------------------------------;
+; wait function with time-out condition         ;
+;                                               ;
+; entry:                                        ;
+;   BH status bits to test                      ;
+;   DX status register IO address               ;
+;   DI assume to point to port time out value   ;
+;   DS assume to be BIOS DATA segment           ;
+; exit:                                         ;
+;   Z.f = 1 status achieved                     ;
+;   Z.f = 0 timeout                             ;
+;   AH = last COM status read                   ;
+;-----------------------------------------------;
+;
+STATUSWAIT:     mov         bl,[ds:di+bdCOMTIMEOUT]     ; get time-out count
+.WaitLoop0:     mov         cx,12892                    ; ( 3) 12892 for 100mSec loop time
+;
+.WaitLoop1:     in          al,dx                       ; ( 8) read status register
+                mov         ah,al                       ; ( 2) move status to AH for return value
+                and         al,bh                       ; ( 3) isolate status bits to test
+                cmp         al,bh                       ; ( 3) compare to mask in BH
+                jz          .WaitDone                   ; ( 4) exit if status achieved
+                loop        .WaitLoop1                  ; (17/5)
+;
+                dec         bl                          ; ( 3)
+                jnz         .WaitLoop0                  ; (16)
+                or          bh,bh                       ; turn off zero flag
+;
+.WaitDone:      ret
+;
 ;----- INT 15 ----------------------------------;
 ; cassette function                             ;
 ;                                               ;
@@ -4478,7 +4747,7 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (INT09+ROMOFF)              ;   y   09h (IRQ1) Keyboard attention           [keyboard controller]
                 dw          (IGNORE+ROMOFF)             ;       0Ah (IRQ2) Video (5-49/197 line 278)    [masked]
                 dw          (INT0B+ROMOFF)              ;   n   0Bh (IRQ3) COM2 serial i/o              [SIO Ch.A -> masked]
-                dw          (INT0C+ROMOFF)              ;   n   0Ch (IRQ4) COM1 serial i/o              [UART console input -> masked]
+                dw          (INT0C+ROMOFF)              ;   n   0Ch (IRQ4) COM1 serial i/o              [UART1 input -> masked]
                 dw          (INT0D+ROMOFF)              ;   n   0Dh (IRQ5) Hard disk attn.              [IDE -> masked]
                 dw          (IGNORE+ROMOFF)             ;       0Eh (IRQ6) Floppy disk attention        [masked]
                 dw          (IGNORE+ROMOFF)             ;       0Fh (IRQ7) Parallel printer             [masked]
@@ -4486,7 +4755,7 @@ VECTORS:        dw          (IGNORE+ROMOFF)             ;       00h Divide by ze
                 dw          (INT11+ROMOFF)              ;   y   11h Equipment present
                 dw          (INT12+ROMOFF)              ;   Y   12h Memories size services
                 dw          (INT13+ROMOFF)              ;   y   13h Disk bios services (5-23/171 line 4)
-                dw          (IGNORE+ROMOFF)             ;       14h Serial com. services
+                dw          (INT14+ROMOFF)              ;   y   14h Serial com. services
                 dw          (INT15+ROMOFF)              ;   y   15h Expansion bios services
                 dw          (INT16+ROMOFF)              ;   y   16h Keyboard bios services (5-46/194 line 4)
                 dw          (IGNORE+ROMOFF)             ;       17h Parallel printer services
@@ -4648,6 +4917,17 @@ MEMPREPERR:     db          "memory error clearing DOS area. halting.", CR, LF, 
 BOOTINGMSG:     db          CR, LF, "booting OS: ", 0
 IPLFAILMSG:     db          "OS boot (IPL) failed", CR, LF, 0
 ;
+;-----  baud rate constants for 4.9152MHz clock
+;
+BAUDLIST:       dw          4096                        ; 110 baud
+                dw          2048                        ; 150
+                dw          1024                        ; 300
+                dw          512                         ; 600
+                dw          256                         ; 1200
+                dw          128                         ; 2400
+                dw          64                          ; 4800
+                dw          32                          ; 9600
+;
 ;-----  hard coded commands for RPi VGA
 ;
 RPIVGACURSON:   db          RPIVGACURSENA, 1, 0, 0, 0, 0, 0 ; turn cursor on
@@ -4718,7 +4998,7 @@ ASCIISHIFT:     dw          011Bh,0221h,0340h,0423h
                 dw          2146h,2247h,2348h,244Ah
                 dw          254Bh,264Ch,273Ah,2822h
                 dw          297Eh,0000h,2B7Ch,2C5Ah
-                dw          2D58h,2E42h,2F56h,3042h
+                dw          2D58h,2E43h,2F56h,3042h
                 dw          314Eh,324Dh,333Ch,343Eh
                 dw          353Fh,0000h,0000h,0000h
                 dw          3920h,0000h,5400h,5500h
@@ -4940,6 +5220,7 @@ INT10DBG:       db          CR, LF, "=== int-10 unhandled function 0x", 0
 INT13DBG:       db          CR, LF, "=== int-13 unhandled function 0x", 0
 INT16DBG:       db          CR, LF, "=== int-16 unhandled function 0x", 0
 INT13FNC:       db          "INT 13,", 0
+INT14FNC:       db          "INT 14,", 0
 KBDDBG1:        db          "scan code 0x", 0
 KBDDBG2:        db          " 0x", 0
 CHSDBG:         db          CR, LF, "=== CHS2LBA",0
@@ -4963,7 +5244,7 @@ segment         resetvector start=(RSTVEC-ROMOFF)
 POWER:          jmp         word ROMSEG:(COLD+ROMOFF)   ; Hardware power reset entry
 ;
 segment         releasedate start=(RELDATE-ROMOFF)
-                db          "09/25/14"                  ; Release date MM/DD/YY
+                db          "08/03/19"                  ; Release date MM/DD/YY
 ;                                                       NOTE: changing release year will affect xmodem upload utility!
 segment         checksum    start=(CHECKSUM-ROMOFF)
                 db          0feh                        ; Computer type (XT)
