@@ -18,14 +18,14 @@ LBA                     LBA         Count
 ======================= =========== =========== ======================================
 BIOS addressable devices hosted on hard drive:
          0 0000h:0000h        2879        2880   alt.0 Floppy A: 1.44MB | MSDOS331.img
-      3000 0000h:0BB8h        5879        2880   alt.1 Floppy A:        | MSDOS622Disk1.img
-      6000 0000h:1770h        8879        2880   alt.2 Floppy A:        | MSDOS622Disk2.img
-      9000 0000h:2328h       11879        2880   alt.3 Floppy A:        | MSDOS622Disk3.img
+      3000 0000h:0BB8h        5879        2880   alt.1 Floppy A:        | Turbo C 2.0 disk1
+      6000 0000h:1770h        8879        2880   alt.2 Floppy A:        | Turbo C 2.0 disk2
+      9000 0000h:2328h       11879        2880   alt.3 Floppy A:        | Turbo C 2.0 disk3
      12000 0000h:2EE0h       14879        2880   Floppy B: 1.44MB       | <user data>
-     15000 0000h:3A98h     4200215     4185216   Fixed Disk   2GB
+     15000 0000h:3A98h     4200215     4185216   Fixed Disk 30MB
 
 List of image library on CF card:
-   4300000 0041h:9CE0h                    2880     MSDOS622Suppdisk.img
+   4300000 0041h:9CE0h                    2880     <none>
    4303000 0041h:A898h                    2880     MSDOS622.img
    4306000 0041h:B450h                    2880     floppyB.img
    4309000 0041h:C008h                    2880     Turbo C 2.0 disk1
@@ -37,8 +37,8 @@ List of image library on CF card:
    4327000 0042h:0658h                    2880     <none>
    4330000 0042h:1210h     4332879        2880     <none>
    4333000 0042h:1DC8h     4335879        2880     <none>
-   4336000 0042h:2980h     4338879        2880     MSDOS330.img
-   4339000 0042h:3538h     4341879        2880     Floppy B: user data backup
+   4336000 0042h:2980h     4338879        2880     <none>
+   4339000 0042h:3538h     4341879        2880     Floppy B: user data backup (12/29/2019)
 
 Maximum LBA number of CF card
    ...                     7962192

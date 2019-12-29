@@ -25,9 +25,9 @@ DEFVIDEOMODE:   equ         9                   ; BIOS POST goes into special mo
 ; fixed disk properties
 ;======================================
 ;
-MAXCYL:         equ         462                 ; cylinder count
-MAXHEAD:        equ         8                   ; head count
-MAXSEC:         equ         17                  ; sectors per track
+MAXCYL:         equ         479                 ; cylinder count
+MAXHEAD:        equ         2                   ; head count
+MAXSEC:         equ         63                  ; sectors per track
 ;
 FDLASTLBA:      equ         ((MAXCYL*MAXHEAD*MAXSEC)-1) ; zero-based last LBA number
 FDHOSTOFFSET:   equ         15000               ; LBA offset into host drive

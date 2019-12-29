@@ -2177,14 +2177,14 @@ INT12:          sti
 ;   DL = drive number (0=A:, 1=2nd floppy, 80h=drive 0, 81h=drive 1)        ;
 ;   on return:                                                              ;
 ;   AH = status  (see INT 13,STATUS)                                        ;
-;   BL = CMOS drive type                                                    ;
+;   BL = CMOS drive type (*** see NOTE)                                     ;
 ;        01 -   360K         03 -   720K                                    ;
 ;        02 -   1.2Mb        04 -  1.44Mb                                   ;
 ;   CH = cylinders (0-1023 dec. see below)                                  ;
 ;   CL = sectors per track  (see below)                                     ;
 ;   DH = number of sides (0 based)                                          ;
 ;   DL = number of drives attached                                          ;
-;   ES:DI = pointer to 11 byte Disk Base Table (DBT)                        ;
+;   ES:DI = pointer to 11 byte Disk Base Table (DBT) (*** see NOTE)         ;
 ;   CF = 0 if successful                                                    ;
 ;      = 1 if error                                                         ;
 ;                                                                           ;
@@ -2200,6 +2200,9 @@ INT12:          sti
 ;     available on the AT, PS/2 and later systems, but all hard disk        ;
 ;     systems since the XT have this function available                     ;
 ;   - only the disk number is checked for validity                          ;
+;   - *** NOTE: by analizing BIOS behavior in a VM and reviewing BIOS       ;
+;               listing for HDD support, ES:DI and BX are not affected      ;
+;               for HDD response, and are preserved hrough this function    ;
 ;                                                                           ;
 ; AH = 15h - Read DASD Type                                                 ;
 ;   DL = drive number (0=A:, 1=2nd floppy, 80h=drive 0, 81h=drive 1)        ;
@@ -2589,33 +2592,46 @@ F05EXIT:        pop         es
 ;       INT 13, function 08h - get drive param  ;
 ;-----------------------------------------------;
 ;
-INT13F08:       call        CHECKDRV                    ; check if drive exists
-                jnc         F08VALIDDRV                 ; drive is valid, continue
+INT13F08:       push        bx
+                push        di
+                push        es                          ; save registers assuming fixed disk call
+;
+                call        CHECKDRV                    ; check if drive exists
+                jnc         .ValidDrive                 ; drive is valid, continue
                 mov         ah,INT13BADPARAM            ; drive parameter is not valid, signal error 'bad parameter'
                 stc
-                jmp         F08EXIT
+                jmp         .DrvNotValid
 ;
 ;-----  set common parameters for fixed disk and diskette
 ;
-F08VALIDDRV:    mov         ch,[es:di+ddDRVGEOCYL]      ; ES:DI = top of drive table, get low byte of cylinder count
+.ValidDrive:    mov         ch,[es:di+ddDRVGEOCYL]      ; ES:DI = top of drive table, get low byte of cylinder count
                 mov         al,[es:di+ddDRVGEOCYL+1]    ; get high byte of cylinder count
                 mov         cl,6
                 shl         al,cl                       ; move 2 high order cylinder count bits
                 add         al,[es:di+ddDRVGEOSEC]      ; add sectors per track
                 mov         cl,al                       ; move to CL
                 mov         dh,[es:di+ddDRVGEOHEAD]     ; get head count
-                xor         bx,bx
+                mov         ah,INT13NOERR               ; indicate no errors
+;
+;-----  distinguish between fixed disk and floppy
+;
+                cmp         dl,80h                      ; is this a fixed or floppy drive ID?
+                jae         .FixedDisk                  ;  this is a fixed disk
+;
                 mov         bl,[es:di+ddCMOSTYPE]       ; get drive type
                 add         di,ddDBT                    ; point DI at the DBT offset
-                cmp         dl,80h                      ; is this a fixed or floppy drive ID?
-                jae         F08FIXED                    ;  this is a fixed disk
                 mov         dl,FLOPPYCNT                ;  get floppy drive count
-                jmp         F08DONE
-F08FIXED:       mov         dl,FIXEDCNT
-F08DONE:        xor         ax,ax
-                mov         ah,INT13NOERR               ; indicate no errors
+                add         sp,6                        ; adjust stack and return
                 clc
-F08EXIT:        ret
+                ret
+;
+.FixedDisk:     mov         dl,FIXEDCNT
+                clc
+;
+.DrvNotValid:   pop         es
+                pop         di
+                pop         bx
+                ret
 ;
 ;-----------------------------------------------;
 ;       INT 13, function 15h - disk/DASD type   ;
@@ -4829,7 +4845,7 @@ FLP1DBT:        db          0dfh                        ; specify byte 1; step-r
 ;
 FD0:            db          80h                         ; drive ID -- fixed disk 0
                 db          3                           ; type = HDD, fixed disk (see INT 13, 15h)
-                db          0                           ; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
+                db          224                         ; CMOS drive type: 1 = 5.25/360K, 2 = 5.25/1.2Mb, 3 = 3.5/720K, 4 = 3.5/1.44Mb
                 dw          (MAXCYL-1)                  ; # cylinders 0..(MAXCYL-1)
                 db          (MAXHEAD-1)                 ; # heads 0..(MAXHEAD-1)
                 db          MAXSEC                      ; # sectors/track 1..MAXSEC
@@ -4849,9 +4865,9 @@ FD0PARAM:       dw          MAXCYL                      ; ( 0) maximum number of
                 db          41h                         ; ( 9) standard timeout value
                 db          10h                         ; (10) timeout value for format drive
                 db          10h                         ; (11) timeout value for check drive
-                dw          1041h                       ; (12) landing zone
+                dw          3ch                         ; (12) landing zone
                 db          MAXSEC                      ; (14) sectors per track
-                db          0a0h                        ; (15) reserved
+                db          6ah                         ; (15) reserved
 ;
 ;-----  FDPT drive parameters format
 ;
