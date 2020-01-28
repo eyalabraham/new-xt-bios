@@ -602,7 +602,7 @@ SYSTEMCONF:     mov         ax,BIOSDATASEG
 ;
                 mov         byte [ds:bdFIXEDDRVCNT],FIXEDCNT ; count of fixed drives
 ;
-;-----  TODO: (not implemented) scan for parallel ports, com ports, game ports etc. and store configuration
+;-----  TODO: (not implemented) scan for parallel ports and game ports
 ;
 ;   *********************************
 ;   ***          RAM TEST         ***
@@ -1337,6 +1337,10 @@ INT0D:          push        ax
 ;       AL video mode                           ;
 ;       40:49 will reflect the mode             ;
 ;       model will not change in implementation ;
+;   AH = 01h                                    ;
+;       CH = cursor start scan line (bit 0-4)   ;
+;       CL = cursor end scan line (bits 0-4)    ;
+;       CX=2000h is cursor off                  ;
 ;   AH = 02h                                    ;
 ;       BH = page number (0 for graphics modes) ;
 ;       DH = row                                ;
@@ -1421,7 +1425,7 @@ INT0D:          push        ax
 ;
 ;                                                       ; function
 INT10JUMPTBL:   dw          (INT10F00+ROMOFF)           ; * 00h     - set CRT mode
-                dw          (INT10F01+ROMOFF)           ; . 01h     - set cursor type
+                dw          (INT10F01+ROMOFF)           ; * 01h     - set cursor type
                 dw          (INT10F02+ROMOFF)           ; * 02h     - set cursor position
                 dw          (INT10F03+ROMOFF)           ; * 03h     - read cursor position
                 dw          (INT10IGNORE+ROMOFF)        ;   04h     - read light pen position
@@ -1477,7 +1481,29 @@ INT10F00:       call        RPIVGAVIDMODE
 ; INT10, 01h - Set Cursor Type                  ;
 ;-----------------------------------------------;
 ;
-INT10F01:       ret                                     ; emulation has a fixed size block cursor
+INT10F01:       push        ax
+                push        si
+                push        ds
+;
+                mov         ax,BIOSDATASEG
+                mov         ds,ax                       ; establish pointer to BIOS data
+;
+                mov         [ds:bdCURSTOP],ch           ; store cursor size in scan-lines
+                mov         [ds:bdCURSBOT],cl
+;
+                mov         si,bdRPIVGACMD
+                mov         byte [ds:si],RPIVGACURSMODE ; cursor mode command
+                mov         byte [ds:si+1],ch           ; Cursor start (top) and end (bottom)
+                mov         byte [ds:si+2],cl           ; in scan lines.
+                mov         word [ds:si+3],0
+                mov         word [ds:si+5],0
+;
+                call        RPIVGACMDTX                 ; send the command
+;
+                pop         ds
+                pop         si
+                pop         ax
+                ret
 ;
 ;-----------------------------------------------;
 ; INT10, 02h - Set Cursor Position              ;
@@ -4946,8 +4972,7 @@ BAUDLIST:       dw          4096                        ; 110 baud
 ;
 ;-----  hard coded commands for RPi VGA
 ;
-RPIVGACURSON:   db          RPIVGACURSENA, 1, 0, 0, 0, 0, 0 ; turn cursor on
-RPIVGACURSOFF:  db          RPIVGACURSENA, 0, 0, 0, 0, 0, 0 ; turn cursor off
+RPIVGACURSON:   db          RPIVGACURSMODE, DEFCURSTOP, DEFCURSBOTTOM, 0, 0, 0, 0 ; turn cursor on
 RPIVGAECHO:     db          RPISYSECHO,    1, 2, 3, 4, 5, 6 ; send echo
 ;
 ;-----  display mode parameters ** must match VGA emulation on RPi in 'fb.c' **

@@ -703,7 +703,7 @@ ESCESC:         equ         0ddh
 ; | Set video mode    | 0      | Mode=0..9    | 0               | 0             | 0         | 0          | 0          |
 ; | Set display page  | 1      | Page         | 0               | 0             | 0         | 0          | 0          |
 ; | Cursor position   | 2      | Page         | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
-; | Cursor enable     | 3      | on=1 / off=0 | 0               | 0             | 0         | 0          | 0          |
+; | Cursor size/mode  | 3 (11) | Top scan line| Bottom scan line| 0             | 0         | 0          | 0          |
 ; | Put character (1) | 4      | Page         | char code       | col=0..79(39) | row=0..24 | 0          | Attrib.(2) |
 ; | Get character (6) | 5      | Page         | 0               | col=0..79(39) | row=0..24 | 0          | 0          |
 ; | Put character (7) | 6      | Page         | char code       | col=0..79(39) | row=0..24 | 0          | 0          |
@@ -725,11 +725,12 @@ ESCESC:         equ         0ddh
 ; (8) Return data format: one byte {color_code}
 ; (9) Return data format: six bytes {6}{5}{4}{3}{2}{1}
 ; (10) Two high order bits are command queue: '00' VGA emulation, '01' tbd, '10' tbd, '11' system
+; (11) A value of 2000h turns cursor off.
 ;
 RPIVGASETVID:   equ         0
 RPIVGASETPAGE:  equ         1
 RPIVGACURSPOS:  equ         2
-RPIVGACURSENA:  equ         3
+RPIVGACURSMODE: equ         3
 RPIVGAPUTCHATT: equ         4
 RPIVGAGETCH:    equ         5
 RPIVGAPUTCH:    equ         6
@@ -741,6 +742,9 @@ RPIVGAPALETTE:  equ         11
 RPIVGASCRCLR:   equ         12
 ;
 RPISYSECHO:     equ         255
+;
+DEFCURSTOP:     equ         0dh                     ; for RPi MDA emulation
+DEFCURSBOTTOM:  equ         0eh
 ;
 ;--------------------------------------
 ; INT 13 status codes
