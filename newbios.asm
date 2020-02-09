@@ -1005,26 +1005,31 @@ INT08:          push        ds
                 mov         ds,ax                       ; establish segment of BIOS data
                 cli                                     ; disable interrupts while manipulating clock
                 inc         word [ds:bdTIMELOW]         ; increment time
-                jnz         USERSERVICE                 ; counter rolls to '0000' every hour at the 18.2Hz interrupt rate
+                jnz         .CheckHours                 ; counter rolls to '0000' every hour at the 18.2Hz interrupt rate
                 inc         word [ds:bdTIMEHI]          ; increment hour counter
-                cmp         word [ds:bdTIMEHI],24       ; reached 24 hour count?
-                jnz         USERSERVICE                 ; no, continue to user int service hook
-                mov         word [ds:bdTIMEHI],0        ; reset day's hour counter
-                mov         byte [ds:bdNEWDAY],1        ; new day
+.CheckHours:    cmp         word [ds:bdTIMEHI],24       ; reached 24 hour count?
+                jnz         .UserService                ; no, continue to user int service hook
+                cmp         word [ds:bdTIMELOW],0b0h    ; check for extra 176 clock ticks (for accuracy)
+                jnz         .UserService                ; no, continue to user int service hook
+                sub         ax,ax
+                mov         word [ds:bdTIMEHI],ax       ; reset counters
+                mov         word [ds:bdTIMELOW],ax
+                mov         byte [ds:bdNEWDAY],1        ; new day, some resources indicate need to increment
+                                                        ; see: http://www.ctyme.com/intr/rb-2271.htm
 ;
-USERSERVICE:    sti                                     ; re-enable interrupts
+.UserService:   sti                                     ; re-enable interrupts
                 int         1ch                         ; invoke user interrupt service
 ;
                 mov         al,byte [ds:bdTIMELOW]      ; blink status LED every 8 cycles, will yield about 1Hz blink rate
                 and         al,00000111b                ; count of 8 interrupts complete?
-                jnz         DPNOCHANGE                  ; no, exit
+                jnz         .INT08exit                  ; no, exit
                 mov         al,[ds:bdBAUDGEN]           ; yes, toggle status LED, save, and output
                 xor         al,~SYSSTATUS
                 mov         [ds:bdBAUDGEN],al
                 mov         dx,BAUDGEN
                 out         dx,al
 ;
-DPNOCHANGE:     mov         al,EOI                      ; Send end-of-interrupt code
+.INT08exit:     mov         al,EOI                      ; Send end-of-interrupt code
                 out         OCW2,al
                 pop         dx
                 pop         ax
@@ -3213,10 +3218,6 @@ INT19ERREXIT:   mcrPRINT    IPLFAILMSG                  ; print IPL fail message
 ;   AH = 01h set clock                          ;
 ;       CX high count                           ;
 ;       DX low count                            ;
-;   AH = 0Ah read day count (not implemented)   ;
-;       CX day count                            ;
-;   AH = 0Bh set day count (not implemented)    ;
-;       CX day count                            ;
 ;                                               ;
 ; exit:                                         ;
 ;   AX modified                                 ;
@@ -3238,6 +3239,7 @@ INT1A:          sti                                     ; enable interrupts
 ;
 INT1A00:        mov         cx,[ds:bdTIMEHI]            ; read time
                 mov         dx,[ds:bdTIMELOW]
+                mov         al,byte [ds:bdNEWDAY]
                 mov         byte [ds:bdNEWDAY],0
                 clc
                 jmp         INT1ADONE
