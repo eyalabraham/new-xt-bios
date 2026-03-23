@@ -25,7 +25,7 @@ BIOS addressable devices hosted on hard drive:
      15000 0000h:3A98h     4200215     4185216   Fixed Disk 30MB
 
 List of image library on CF card:
-   4300000 0041h:9CE0h                    2880     <none>
+   4300000 0041h:9CE0h                    2880     vde.img (VDE text editor)
    4303000 0041h:A898h                    2880     MSDOS622.img
    4306000 0041h:B450h                    2880     floppyB.img
    4309000 0041h:C008h                    2880     Turbo C 2.0 disk1

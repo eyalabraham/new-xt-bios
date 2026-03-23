@@ -1,4 +1,10 @@
 # newbios (and associated files)
+
+>
+> This repository is deprecated.
+> See alternate project in https://github.com/eyalabraham/pc-xt-bios-extension
+>
+
 This is a BIOS rewrite for a PC/XT type machine.
 The BIOS replacement is for a PC/XT clone, strip-down 8088 / 640KB mother board.
 The hardware added on the system board are:
